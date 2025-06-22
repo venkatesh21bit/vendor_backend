@@ -1,0 +1,177 @@
+from rest_framework import serializers
+from .models import Product, Category, Retailer, Order, OrderItem, Employee, Truck, Shipment,Invoice, InvoiceItem,Company
+from django.contrib.auth.models import User, Group
+
+
+class CompanySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Company
+        fields = '__all__'
+        extra_kwargs = {
+            'user': {'read_only': True}
+        }
+   
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = '__all__'
+
+class ProductSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Product
+        fields = '__all__'  # Keep all fields from the Product model, but override 'category'
+        extra_kwargs = {
+            'company': {'required': True},
+            'category': {'required': False, 'allow_null': True},
+            'created_by': {'read_only': True},
+        }
+
+
+class RetailerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Retailer
+        fields = '__all__'
+
+class OrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.name', read_only=True)
+
+    class Meta:
+        model = OrderItem
+        fields = ['id', 'product', 'product_name', 'quantity']
+
+class OrderSerializer(serializers.ModelSerializer):
+    retailer_name = serializers.CharField(source='retailer.name', read_only=True)
+    items = OrderItemSerializer(many=True)
+
+    class Meta:
+        model = Order
+        fields = ['order_id', 'company', 'retailer', 'retailer_name', 'order_date', 'status', 'items']
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+        order = Order.objects.create(**validated_data)
+        for item_data in items_data:
+            OrderItem.objects.create(order=order, **item_data)
+        return order
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop('items', None)
+        instance = super().update(instance, validated_data)
+        if items_data is not None:
+            instance.items.all().delete()
+            for item_data in items_data:
+                OrderItem.objects.create(order=instance, **item_data)
+        return instance
+
+
+class TruckSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Truck
+        fields = '__all__'
+
+class EmployeeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Employee
+        fields = '__all__'
+
+class ShipmentSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+    class Meta:
+        model = Shipment
+        fields = '__all__'
+    
+    def get_employee_name(self, obj):
+        if obj.employee and obj.employee.user:
+            return obj.employee.user.username
+        return None
+
+    def update(self, instance, validated_data):
+        """
+        When status is updated to 'delivered', update:
+        - The order's status
+        - The product's total_required_quantity and total_shipped
+        """
+        if "status" in validated_data and validated_data["status"] == "delivered":
+            order = instance.order
+
+            # Update order status
+            order.status = "delivered"
+            order.save(update_fields=["status"])
+
+            # Update all products in the order
+        for item in order.items.all():
+            product = item.product
+            product.total_required_quantity = max(0, product.total_required_quantity - item.quantity)
+            product.total_shipped += item.quantity
+            product.save(update_fields=["total_required_quantity", "total_shipped"])
+
+        return super().update(instance, validated_data)
+    
+class CategorySerializer(serializers.ModelSerializer):
+    product_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Category
+        fields = ['category_id', 'name', 'product_count']
+
+
+class UserRegistrationSerializer(serializers.ModelSerializer):
+    group_name = serializers.CharField(write_only=True)  # Accept group name during registration
+
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'password', 'group_name']
+        extra_kwargs = {
+            'password': {'write_only': True}
+        }
+
+    def create(self, validated_data):
+        group_name = validated_data.pop('group_name', None)
+        password = validated_data.pop('password')
+        user = User(**validated_data)
+        user.set_password(password)
+        user.save()
+
+        # Assign the user to the specified group
+        if group_name:
+            try:
+                group = Group.objects.get(name=group_name)
+                user.groups.add(group)
+                # Assign all permissions of the group to the user
+                permissions = group.permissions.all()
+                user.user_permissions.add(*permissions)
+            except Group.DoesNotExist:
+                raise serializers.ValidationError({"group_name": "Group does not exist."})
+
+        return user
+    
+# accounting
+class InvoiceItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvoiceItem
+        fields = [
+            'Product', 'quantity', 'taxable_value', 'gst_rate',
+            'cgst', 'sgst', 'igst', 'hsn_code'
+        ]
+
+class InvoiceSerializer(serializers.ModelSerializer):
+    items = InvoiceItemSerializer(many=True)
+    retailer_name = serializers.CharField(source='Retailer.name', read_only=True)  
+
+    class Meta:
+        model = Invoice
+        fields = [
+            'invoice_number', 'company', 'Retailer','retailer_name', 'invoice_date',
+            'is_einvoice_generated', 'irn', 'qr_code',
+            'total_taxable_value', 'total_cgst', 'total_sgst', 'total_igst',
+            'grand_total', 'payment_mode', 'payment_status', 'items'
+        ]
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+        invoice = Invoice.objects.create(**validated_data)
+        for item_data in items_data:
+            InvoiceItem.objects.create(invoice=invoice, **item_data)
+        return invoice
