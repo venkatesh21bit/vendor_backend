@@ -9,6 +9,11 @@ https://docs.djangoproject.com/en/5.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
+import dj_database_url
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Load from .env if present locally
 
 from pathlib import Path
 
@@ -25,7 +30,8 @@ SECRET_KEY = 'django-insecure-0g%4t%hc#)7fvdq(vc)1hu68^7d%0b2%epp19ycla+d9lc0kec
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
+
 
 
 # Application definition
@@ -80,16 +86,13 @@ WSGI_APPLICATION = 'main.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'smartchain_db',
-        'USER': 'venkatesh',
-        'PASSWORD': 'venkat*2005',
-        'HOST': 'localhost',  # If running PostgreSQL locally
-        'PORT': '5432',       # Default PostgreSQL port
-    }
+    'default': dj_database_url.config(
+        default=os.getenv('DATABASE_URL')
+    )
 }
+
 
 
 # Password validation
@@ -127,6 +130,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # Add this
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
