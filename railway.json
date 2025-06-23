@@ -9,7 +9,7 @@
     "numReplicas": 1,
     "startCommand": "gunicorn main.wsgi",
     "preDeployCommand": [
-      "python manage.py migrate && python manage.py createsuperuser"
+      "python manage.py migrate"
     ],
     "sleepApplication": false,
     "multiRegionConfig": {
