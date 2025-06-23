@@ -27,13 +27,5 @@ COPY . .
 # Expose port (change if needed)
 EXPOSE 8000
 
-
-# Copy entrypoint script
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-
-# Use entrypoint script
-ENTRYPOINT ["/app/entrypoint.sh"]
-
 # Start server using gunicorn
 CMD ["gunicorn", "main.wsgi:application", "--bind", "0.0.0.0:8000"]
