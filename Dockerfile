@@ -29,7 +29,3 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 
-
-
-# Start server using gunicorn
-CMD ["gunicorn", "main.wsgi:application", "--bind", "0.0.0.0:8000"]

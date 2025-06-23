@@ -1,5 +1,7 @@
 #!/bin/bash
 
+echo "🚀 ENTRYPOINT: Running Django migrations and starting server..."
+
 echo "Running database migrations..."
 python manage.py migrate
 
