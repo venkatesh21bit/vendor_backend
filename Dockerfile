@@ -22,10 +22,12 @@ RUN pip install -r requirements.txt
 # Copy project files
 COPY . .
 
-
-
 # Expose port (change if needed)
 EXPOSE 8000
+
+# Run DB migrations + superuser creation
+RUN python manage.py migrate
+RUN python manage.py shell < create_superuser.py
 
 # Start server using gunicorn
 CMD ["gunicorn", "main.wsgi:application", "--bind", "0.0.0.0:8000"]

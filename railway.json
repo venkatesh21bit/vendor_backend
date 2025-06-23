@@ -1,6 +1,0 @@
-{
-  "preDeployCommand": [
-    "python manage.py migrate",
-    "python manage.py shell < create_superuser.py"
-  ]
-}
