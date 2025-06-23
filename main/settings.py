@@ -152,3 +152,7 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Change this to match your frontend URL
 ]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://web-production-d0d2c.up.railway.app"
+]
