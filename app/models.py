@@ -182,7 +182,7 @@ class Invoice(models.Model):
     invoice_number = models.CharField(max_length=20)
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="invoices")
     Retailer = models.ForeignKey(Retailer, on_delete=models.CASCADE)
-    invoice_date = models.DateTimeField()  # Changed from auto_now_add
+    invoice_date = models.DateTimeField()
     is_einvoice_generated = models.BooleanField(default=False)
     irn = models.CharField(max_length=100, blank=True)
     qr_code = models.ImageField(upload_to='qr_codes/', blank=True, null=True)
@@ -193,6 +193,9 @@ class Invoice(models.Model):
     grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     payment_mode = models.CharField(max_length=20, choices=[('cash', 'Cash'), ('upi', 'UPI'), ('card', 'Card'), ('bank', 'Bank')], default='cash')
     payment_status = models.CharField(max_length=20, choices=[('paid', 'Paid'), ('unpaid', 'Unpaid'), ('partial', 'Partial')], default='unpaid')
+
+    class Meta:
+        unique_together = ('invoice_number', 'company') 
 
     def __str__(self):
         return f"Invoice {self.invoice_number} - {self.Retailer.name}"
