@@ -3,6 +3,7 @@ set -x
 echo "🚀 ENTRYPOINT: Running Django migrations and starting server..."
 
 echo "Running database migrations..."
+echo "DATABASE_URL is: $DATABASE_URL"
 python manage.py migrate
 
 echo "Creating superuser..."
