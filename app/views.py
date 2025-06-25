@@ -153,7 +153,7 @@ def add_retailer(request):
     Expects 'company' in request data or as a query param (?company=).
     """
     data = request.data.copy()
-    company_id = request.data.get('company') or request.query_params.get('company')
+    company_id = request.query_params.get('company')
     if not company_id:
         return Response({"error": "company_id is required"}, status=status.HTTP_400_BAD_REQUEST)
     data['company'] = company_id
