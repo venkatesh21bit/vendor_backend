@@ -150,8 +150,15 @@ def register_user(request):
 def add_retailer(request):
     """
     API to add a new retailer.
+    Expects 'company' in request data or as a query param (?company=).
     """
-    serializer = RetailerSerializer(data=request.data)
+    data = request.data.copy()
+    company_id = request.data.get('company') or request.query_params.get('company')
+    if not company_id:
+        return Response({"error": "company_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+    data['company'] = company_id
+
+    serializer = RetailerSerializer(data=data)
     if serializer.is_valid():
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
