@@ -179,7 +179,7 @@ class OrderItem(models.Model):
         return f"{self.product.name} x {self.quantity} (Order {self.order.order_id})"
     
 class Invoice(models.Model):
-    invoice_number = models.CharField(max_length=20, unique=True)
+    invoice_number = models.CharField(max_length=20)
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="invoices")
     Retailer = models.ForeignKey(Retailer, on_delete=models.CASCADE)
     invoice_date = models.DateTimeField()  # Changed from auto_now_add
