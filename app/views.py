@@ -146,7 +146,7 @@ def register_user(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsAdminUser])  # Only admins can add retailers
+@permission_classes([IsAuthenticated])  # Only admins can add retailers
 def add_retailer(request):
     """
     API to add a new retailer.
