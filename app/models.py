@@ -204,6 +204,7 @@ class InvoiceItem(models.Model):
     invoice = models.ForeignKey(Invoice, related_name='items', on_delete=models.CASCADE)
     Product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity = models.IntegerField()
+    price = models.DecimalField(max_digits=10, decimal_places=2) 
     taxable_value = models.DecimalField(max_digits=10, decimal_places=2)
     gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     cgst = models.DecimalField(max_digits=10, decimal_places=2, default=0)

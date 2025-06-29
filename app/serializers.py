@@ -152,7 +152,7 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceItem
         fields = [
-            'Product', 'quantity', 'taxable_value', 'gst_rate',
+            'Product', 'quantity','price', 'taxable_value', 'gst_rate',
             'cgst', 'sgst', 'igst', 'hsn_code'
         ]
 
