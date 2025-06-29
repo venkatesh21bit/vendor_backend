@@ -3,6 +3,7 @@ set -x
 echo "🚀 ENTRYPOINT: Running Django migrations and starting server..."
 
 echo "Running database migrations..."
+python manage.py migrate zero
 python manage.py makemigrations
 python manage.py migrate
 
