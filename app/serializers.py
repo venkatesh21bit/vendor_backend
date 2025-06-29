@@ -163,7 +163,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = [
-            'invoice_number', 'company', 'Retailer','retailer_name', 'invoice_date',
+            'invoice_number', 'company', 'Retailer','retailer_name', 'invoice_date','due_date',
             'is_einvoice_generated', 'irn', 'qr_code',
             'total_taxable_value', 'total_cgst', 'total_sgst', 'total_igst',
             'grand_total', 'payment_mode', 'payment_status', 'items'

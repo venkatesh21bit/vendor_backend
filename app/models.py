@@ -183,6 +183,7 @@ class Invoice(models.Model):
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="invoices")
     Retailer = models.ForeignKey(Retailer, on_delete=models.CASCADE)
     invoice_date = models.DateTimeField()
+    due_date = models.DateTimeField(blank=True, null=True)
     is_einvoice_generated = models.BooleanField(default=False)
     irn = models.CharField(max_length=100, blank=True)
     qr_code = models.ImageField(upload_to='qr_codes/', blank=True, null=True)
