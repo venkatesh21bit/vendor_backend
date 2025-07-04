@@ -9,10 +9,11 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework import status,viewsets,permissions,serializers
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Count, Sum
-from .models import Employee, Retailer, Order, Truck, Shipment, Product, Category,OdooCredentials,Invoice,Company
+from .models import Employee, Retailer, Order, Truck, Shipment, Product, Category,OdooCredentials,Invoice,Company, PasswordResetOTP
 from .serializers import (
     EmployeeSerializer, RetailerSerializer, CompanySerializer,
-    OrderSerializer,InvoiceSerializer, ProductSerializer, TruckSerializer, ShipmentSerializer, CategorySerializer,UserRegistrationSerializer
+    OrderSerializer,InvoiceSerializer, ProductSerializer, TruckSerializer, ShipmentSerializer, CategorySerializer,UserRegistrationSerializer,
+    ForgotPasswordSerializer, VerifyOTPSerializer, ResetPasswordSerializer
 )
 from .allocation import allocate_shipments
 from django.db.models import F
@@ -22,7 +23,7 @@ from django.http import JsonResponse
 from .permissions import IsEmployeeUser
 from django.contrib.admin.models import LogEntry;
 from django.contrib.admin.models import LogEntry
-
+from .utils import send_otp_email, send_password_reset_confirmation
 
 from django.db.models.functions import TruncMonth
 
@@ -680,5 +681,134 @@ def get_available_groups(request):
     """
     groups = Group.objects.all().values_list('name', flat=True)
     return Response({"groups": list(groups)}, status=status.HTTP_200_OK)
+
+
+# Password Reset Views
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def forgot_password(request):
+    """
+    API to initiate password reset process.
+    Sends OTP to user's email if username and email match.
+    """
+    serializer = ForgotPasswordSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        user = serializer.validated_data['user']
+        
+        # Delete any existing unverified OTPs for this user
+        PasswordResetOTP.objects.filter(user=user, is_verified=False).delete()
+        
+        # Create new OTP
+        otp_instance = PasswordResetOTP.objects.create(user=user)
+        
+        # Send OTP via email
+        email_sent = send_otp_email(user, otp_instance.otp)
+        
+        if email_sent:
+            return Response({
+                'message': 'OTP sent successfully to your email address.',
+                'username': user.username
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                'error': 'Failed to send OTP email. Please try again.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def verify_otp(request):
+    """
+    API to verify the OTP sent to user's email.
+    """
+    serializer = VerifyOTPSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        otp_instance = serializer.validated_data['otp_instance']
+        
+        # Mark OTP as verified
+        otp_instance.is_verified = True
+        otp_instance.save()
+        
+        return Response({
+            'message': 'OTP verified successfully. You can now reset your password.',
+            'username': otp_instance.user.username,
+            'otp': otp_instance.otp  # Include OTP for password reset step
+        }, status=status.HTTP_200_OK)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def reset_password(request):
+    """
+    API to reset user's password after OTP verification.
+    """
+    serializer = ResetPasswordSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        user = serializer.validated_data['user']
+        otp_instance = serializer.validated_data['otp_instance']
+        new_password = serializer.validated_data['new_password']
+        
+        # Reset the password
+        user.set_password(new_password)
+        user.save()
+        
+        # Delete the used OTP
+        otp_instance.delete()
+        
+        # Send confirmation email
+        send_password_reset_confirmation(user)
+        
+        return Response({
+            'message': 'Password reset successfully. You can now login with your new password.'
+        }, status=status.HTTP_200_OK)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def resend_otp(request):
+    """
+    API to resend OTP if the previous one expired or was not received.
+    """
+    username = request.data.get('username')
+    
+    if not username:
+        return Response({
+            'error': 'Username is required.'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        user = User.objects.get(username=username)
+        
+        # Delete any existing OTPs for this user
+        PasswordResetOTP.objects.filter(user=user).delete()
+        
+        # Create new OTP
+        otp_instance = PasswordResetOTP.objects.create(user=user)
+        
+        # Send OTP via email
+        email_sent = send_otp_email(user, otp_instance.otp)
+        
+        if email_sent:
+            return Response({
+                'message': 'New OTP sent successfully to your email address.'
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                'error': 'Failed to send OTP email. Please try again.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    except User.DoesNotExist:
+        return Response({
+            'error': 'User does not exist.'
+        }, status=status.HTTP_404_NOT_FOUND)
 
 
