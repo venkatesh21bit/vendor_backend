@@ -6,7 +6,7 @@ from .views import (
     CustomAuthToken, ProductViewSet,CategoryViewSet,add_retailer,get_employee_id,logout_view, get_employees, get_retailers,get_counts,
     get_orders,get_users,get_employee_orders,recent_actions,get_employee_shipments,update_shipment_status,get_logged_in_user,allocate_order, get_trucks, get_shipments,category_stock_data,store_qr_code,
     save_odoo_credentials,register_user,get_available_employees_for_order, get_available_groups, InvoiceViewSet, CompanyViewSet, shipment_stats, invoice_count, approve_order,
-    forgot_password, verify_otp, reset_password, resend_otp
+    forgot_password, verify_otp, reset_password, resend_otp, update_product_quantities
 )
 # Add the router for InvoiceViewSet
 router = DefaultRouter()
@@ -56,6 +56,9 @@ urlpatterns = [
     path('verify-otp/', verify_otp, name='verify_otp'),
     path('reset-password/', reset_password, name='reset_password'),
     path('resend-otp/', resend_otp, name='resend_otp'),
+    
+    # Product Quantity Update Endpoint
+    path('update-product-quantities/', update_product_quantities, name='update_product_quantities'),
     
      # Add router URLs here
     path('', include(router.urls)),

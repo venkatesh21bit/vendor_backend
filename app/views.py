@@ -86,6 +86,67 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         if company_id:
             queryset = queryset.filter(company_id=company_id)
         return queryset
+    
+    def perform_create(self, serializer):
+        """
+        When an invoice is created, automatically update product quantities
+        """
+        with transaction.atomic():
+            # Create the invoice first
+            invoice = serializer.save()
+            
+            # Update product quantities based on invoice items
+            for item in invoice.items.all():
+                product = item.Product
+                shipped_quantity = item.quantity
+                
+                # Update total shipped quantity
+                product.total_shipped += shipped_quantity
+                
+                # Reduce available quantity
+                if product.available_quantity >= shipped_quantity:
+                    product.available_quantity -= shipped_quantity
+                else:
+                    # If insufficient stock, you can either:
+                    # 1. Raise an error (uncomment below)
+                    # raise serializers.ValidationError(f'Insufficient stock for {product.name}')
+                    # 2. Or set available quantity to 0
+                    product.available_quantity = 0
+                
+                # Save the product (this will trigger the update_status method)
+                product.save()
+
+    def perform_update(self, serializer):
+        """
+        When an invoice is updated, handle quantity adjustments if needed
+        """
+        # Get the original invoice before update
+        original_invoice = self.get_object()
+        original_items = {item.Product.product_id: item.quantity for item in original_invoice.items.all()}
+        
+        with transaction.atomic():
+            # Update the invoice
+            invoice = serializer.save()
+            
+            # Calculate quantity differences and update products
+            for item in invoice.items.all():
+                product = item.Product
+                new_quantity = item.quantity
+                original_quantity = original_items.get(product.product_id, 0)
+                quantity_difference = new_quantity - original_quantity
+                
+                if quantity_difference != 0:
+                    # Update total shipped
+                    product.total_shipped += quantity_difference
+                    
+                    # Update available quantity (inverse of shipped)
+                    product.available_quantity -= quantity_difference
+                    
+                    # Ensure available quantity doesn't go negative
+                    if product.available_quantity < 0:
+                        product.available_quantity = 0
+                    
+                    product.save()
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
@@ -810,5 +871,82 @@ def resend_otp(request):
         return Response({
             'error': 'User does not exist.'
         }, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_product_quantities(request):
+    """
+    API to update product quantities when invoice is created.
+    Expects: {
+        "product_updates": [
+            {
+                "product_id": 1,
+                "shipped_quantity": 50,
+                "reduce_available": true  // optional, default false
+            }
+        ]
+    }
+    """
+    try:
+        product_updates = request.data.get('product_updates', [])
+        
+        if not product_updates:
+            return Response({
+                'error': 'product_updates field is required with product data'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        updated_products = []
+        
+        with transaction.atomic():  # Ensure all updates succeed or none do
+            for update_data in product_updates:
+                product_id = update_data.get('product_id')
+                shipped_quantity = update_data.get('shipped_quantity', 0)
+                reduce_available = update_data.get('reduce_available', False)
+                
+                if not product_id:
+                    return Response({
+                        'error': 'product_id is required for each product update'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                try:
+                    product = Product.objects.get(product_id=product_id)
+                    
+                    # Update total shipped quantity
+                    product.total_shipped += shipped_quantity
+                    
+                    # Optionally reduce available quantity
+                    if reduce_available:
+                        if product.available_quantity >= shipped_quantity:
+                            product.available_quantity -= shipped_quantity
+                        else:
+                            return Response({
+                                'error': f'Insufficient available quantity for product {product.name}. Available: {product.available_quantity}, Requested: {shipped_quantity}'
+                            }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    # Save the product (this will trigger the update_status method)
+                    product.save()
+                    
+                    updated_products.append({
+                        'product_id': product.product_id,
+                        'product_name': product.name,
+                        'total_shipped': product.total_shipped,
+                        'available_quantity': product.available_quantity,
+                        'status': product.status
+                    })
+                    
+                except Product.DoesNotExist:
+                    return Response({
+                        'error': f'Product with ID {product_id} does not exist'
+                    }, status=status.HTTP_404_NOT_FOUND)
+        
+        return Response({
+            'message': 'Product quantities updated successfully',
+            'updated_products': updated_products
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'error': f'An error occurred: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
