@@ -10,7 +10,7 @@ from .views import (
     retailer_companies, public_companies, send_company_invite, join_by_code, request_company_approval,
     retailer_counts, retailer_companies_count, retailer_orders, retailer_products, retailer_profile,
     generate_invite_code, get_company_invites, get_retailer_requests, accept_retailer_request,
-    get_company_connections, update_connection_status
+    get_company_connections, update_connection_status, create_retailer_profile
 )
 # Add the router for InvoiceViewSet
 router = DefaultRouter()
@@ -30,6 +30,7 @@ urlpatterns = [
 
     # ✅ API Endpoints (Protected)
     path('retailers/add/', add_retailer, name='add_retailer'),
+    path('retailers/create-profile/', create_retailer_profile, name='create_retailer_profile'),
     path("employees/", get_employees, name="get_employees"),  # Admin Only
     path("retailers/", get_retailers, name="get_retailers"),  # Admin Only
     path("orders/", get_orders, name="get_orders"),  # Admin & Employees

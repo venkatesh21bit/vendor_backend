@@ -31,9 +31,52 @@ class ProductSerializer(serializers.ModelSerializer):
 
 
 class RetailerSerializer(serializers.ModelSerializer):
+    # Make company optional for independent retailer registration
+    company = serializers.PrimaryKeyRelatedField(
+        queryset=Company.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="Optional: Company to associate retailer with (for manufacturer-side creation)"
+    )
+    
+    # Add convenience fields for better API usability
+    user_details = serializers.SerializerMethodField(read_only=True)
+    company_name = serializers.CharField(source='company.name', read_only=True)
+    
     class Meta:
         model = Retailer
         fields = '__all__'
+        extra_kwargs = {
+            'user': {'required': False},  # Will be set programmatically
+            'is_active': {'default': True},
+            'is_verified': {'default': False},
+        }
+    
+    def get_user_details(self, obj):
+        """Return basic user information"""
+        if obj.user:
+            return {
+                'id': obj.user.id,
+                'username': obj.user.username,
+                'email': obj.user.email,
+                'first_name': obj.user.first_name,
+                'last_name': obj.user.last_name,
+            }
+        return None
+    
+    def validate(self, data):
+        """Custom validation logic"""
+        # Ensure required business information is provided
+        if not data.get('business_name'):
+            raise serializers.ValidationError("Business name is required")
+        
+        if not data.get('email'):
+            raise serializers.ValidationError("Email is required")
+        
+        if not data.get('phone'):
+            raise serializers.ValidationError("Phone number is required")
+        
+        return data
 
 class OrderItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.name', read_only=True)
@@ -43,7 +86,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
         fields = ['id', 'product', 'product_name', 'quantity']
 
 class OrderSerializer(serializers.ModelSerializer):
-    retailer_name = serializers.CharField(source='retailer.name', read_only=True)
+    retailer_name = serializers.CharField(source='retailer.business_name', read_only=True)
     items = OrderItemSerializer(many=True)
 
     class Meta:
@@ -159,12 +202,12 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
 
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True)
-    retailer_name = serializers.CharField(source='Retailer.name', read_only=True)  
+    retailer_name = serializers.CharField(source='retailer.business_name', read_only=True)  
 
     class Meta:
         model = Invoice
         fields = [
-            'invoice_number', 'company', 'Retailer','retailer_name', 'invoice_date','due_date',
+            'invoice_number', 'company', 'retailer','retailer_name', 'invoice_date','due_date',
             'is_einvoice_generated', 'irn', 'qr_code',
             'total_taxable_value', 'total_cgst', 'total_sgst', 'total_igst',
             'grand_total', 'payment_mode', 'payment_status', 'items'

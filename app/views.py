@@ -215,22 +215,94 @@ def register_user(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Only admins can add retailers
+@permission_classes([IsAuthenticated])
 def add_retailer(request):
     """
     API to add a new retailer.
-    Expects 'company' in request data or as a query param (?company=).
+    Can be used in two ways:
+    1. From manufacturer side: Include 'company_id' to create retailer for specific company
+    2. From retailer side: No company_id needed, creates independent retailer profile
     """
     data = request.data.copy()
-    company_id = request.query_params.get('company')
-    if not company_id:
-        return Response({"error": "company_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-    data['company'] = company_id
+    
+    # Check if company_id is provided (manufacturer creating retailer)
+    company_id = request.query_params.get('company') or request.data.get('company_id')
+    
+    if company_id:
+        # Manufacturer is creating retailer for their company
+        try:
+            company = Company.objects.get(id=company_id)
+            # Check if user has permission to add retailers to this company
+            if not (request.user.is_staff or request.user.companies.filter(id=company_id).exists()):
+                return Response({
+                    "error": "You don't have permission to add retailers to this company"
+                }, status=status.HTTP_403_FORBIDDEN)
+            data['company'] = company_id
+        except Company.DoesNotExist:
+            return Response({
+                "error": "Company not found"
+            }, status=status.HTTP_404_NOT_FOUND)
+    else:
+        # Retailer is creating their own profile - no company association initially
+        # They can later join companies through invite codes or requests
+        pass
+
+    # Create user if username/email provided and user doesn't exist
+    username = data.get('username')
+    email = data.get('email')
+    
+    if username or email:
+        # Check if this is for creating a new user account
+        password = data.get('password')
+        if password:
+            try:
+                # Create new user
+                user_data = {
+                    'username': username or email.split('@')[0],
+                    'email': email,
+                    'password': password,
+                    'first_name': data.get('first_name', ''),
+                    'last_name': data.get('last_name', ''),
+                }
+                
+                # Check if user already exists
+                if User.objects.filter(username=user_data['username']).exists():
+                    return Response({
+                        "error": f"User with username '{user_data['username']}' already exists"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                if email and User.objects.filter(email=email).exists():
+                    return Response({
+                        "error": f"User with email '{email}' already exists"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                user = User.objects.create_user(**user_data)
+                
+                # Use the created user for retailer profile
+                data['user'] = user.id
+                
+            except Exception as e:
+                return Response({
+                    "error": f"Failed to create user: {str(e)}"
+                }, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        # Use current logged-in user for retailer profile
+        data['user'] = request.user.id
 
     serializer = RetailerSerializer(data=data)
     if serializer.is_valid():
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        retailer = serializer.save()
+        
+        response_data = serializer.data
+        
+        # Add helpful message based on creation context
+        if company_id:
+            response_data['message'] = f"Retailer created successfully for company {company.name}"
+        else:
+            response_data['message'] = "Retailer profile created successfully. You can now join companies using invite codes or send join requests."
+        
+        return Response(response_data, status=status.HTTP_201_CREATED)
+    
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(["POST"])
@@ -1620,6 +1692,43 @@ def update_product_quantities(request):
     except Exception as e:
         return Response({
             'error': f'An error occurred: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_retailer_profile(request):
+    """
+    API for retailers to create their own profile (self-registration)
+    No company association - they can join companies later via invites/requests
+    """
+    try:
+        # Check if user already has a retailer profile
+        if hasattr(request.user, 'retailer_profile'):
+            return Response({
+                "error": "Retailer profile already exists for this user"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        data = request.data.copy()
+        data['user'] = request.user.id
+        
+        # Remove company field if present (not needed for self-registration)
+        data.pop('company', None)
+        data.pop('company_id', None)
+        
+        serializer = RetailerSerializer(data=data)
+        if serializer.is_valid():
+            retailer = serializer.save()
+            
+            response_data = serializer.data
+            response_data['message'] = "Retailer profile created successfully! You can now browse public companies or wait for invitations."
+            
+            return Response(response_data, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+    except Exception as e:
+        return Response({
+            "error": f"An error occurred: {str(e)}"
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
