@@ -10,7 +10,7 @@ from .views import (
     retailer_companies, public_companies, send_company_invite, join_by_code, request_company_approval,
     retailer_counts, retailer_companies_count, retailer_orders, retailer_products, retailer_profile,
     generate_invite_code, get_company_invites, get_retailer_requests, accept_retailer_request,
-    get_company_connections, update_connection_status, create_retailer_profile
+    get_company_connections, update_connection_status, create_retailer_profile, check_retailer_profile
 )
 # Add the router for InvoiceViewSet
 router = DefaultRouter()
@@ -66,6 +66,7 @@ urlpatterns = [
     path('update-product-quantities/', update_product_quantities, name='update_product_quantities'),
     
     # Retailer API Endpoints
+    path('retailer/check-profile/', check_retailer_profile, name='check_retailer_profile'),
     path('retailer/companies/', retailer_companies, name='retailer_companies'),
     path('companies/public/', public_companies, name='public_companies'),
     path('retailer/join-by-invite/', send_company_invite, name='send_company_invite'),

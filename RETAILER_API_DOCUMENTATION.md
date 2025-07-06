@@ -13,6 +13,25 @@ Authorization: Bearer <your-jwt-token>
 
 ### 1. Retailer Profile Management
 
+#### Check Profile Status
+- **GET** `/retailer/check-profile/`
+- **Description**: Check if the current user has a retailer profile
+- **Authentication**: Required
+
+**Response:**
+```json
+{
+    "has_profile": true,
+    "user_id": 5,
+    "username": "retailer1",
+    "email": "retailer@example.com",
+    "profile_id": 1,
+    "business_name": "ABC Retail Store",
+    "is_verified": false,
+    "is_active": true
+}
+```
+
 #### Get/Update Retailer Profile
 - **GET/PUT** `/retailer/profile/`
 - **Description**: Get or update the current user's retailer profile
@@ -23,30 +42,71 @@ Authorization: Bearer <your-jwt-token>
 {
     "id": 1,
     "username": "retailer1",
+    "user_email": "retailer@example.com",
+    "user_first_name": "John",
+    "user_last_name": "Doe",
     "business_name": "ABC Retail Store",
     "contact_person": "John Doe",
     "phone": "+1234567890",
     "email": "contact@abcretail.com",
     "address_line1": "123 Main St",
+    "address_line2": null,
     "city": "New York",
     "state": "NY",
     "pincode": "10001",
+    "country": "India",
     "gstin": "GST123456789",
-    "is_verified": false
+    "business_type": "Retail Store",
+    "established_year": 2020,
+    "is_active": true,
+    "is_verified": false,
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-15T10:30:00Z",
+    "connected_companies_count": 3,
+    "pending_requests_count": 1,
+    "total_orders_count": 25
 }
 ```
 
-**PUT Request:**
+**PUT Request (Update Profile):**
 ```json
 {
     "business_name": "ABC Retail Store Updated",
     "contact_person": "John Doe",
     "phone": "+1234567890",
     "email": "contact@abcretail.com",
-    "address_line1": "123 Main St",
+    "address_line1": "123 Main St Updated",
     "city": "New York",
     "state": "NY",
-    "pincode": "10001"
+    "pincode": "10001",
+    "business_type": "Retail Chain",
+    "established_year": 2020
+}
+```
+
+**PUT Response (Update):**
+```json
+{
+    "message": "Profile updated successfully.",
+    "profile": {
+        "id": 1,
+        "username": "retailer1",
+        "business_name": "ABC Retail Store Updated",
+        // ... other profile fields
+    }
+}
+```
+
+**PUT Response (Create New):**
+```json
+{
+    "message": "Profile created successfully.",
+    "profile": {
+        "id": 1,
+        "username": "retailer1",
+        "business_name": "ABC Retail Store",
+        // ... other profile fields
+    }
 }
 ```
 
@@ -285,9 +345,50 @@ Authorization: Bearer <your-jwt-token>
 
 ## Frontend Integration Examples
 
-### Creating Retailer Profile
+### Checking Profile Status
 ```javascript
-const createRetailerProfile = async (profileData) => {
+const checkProfileStatus = async () => {
+    const response = await fetch('/retailer/check-profile/', {
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
+    });
+    return response.json();
+};
+
+// Usage
+checkProfileStatus().then(data => {
+    if (data.has_profile) {
+        console.log('User has profile:', data.business_name);
+        // Redirect to dashboard
+    } else {
+        console.log('User needs to create profile');
+        // Redirect to profile creation form
+    }
+});
+```
+
+### Getting Profile Details
+```javascript
+const getRetailerProfile = async () => {
+    const response = await fetch('/retailer/profile/', {
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
+    });
+    
+    if (response.status === 404) {
+        // Profile not found
+        return { hasProfile: false };
+    }
+    
+    return { hasProfile: true, profile: await response.json() };
+};
+```
+
+### Creating/Updating Profile
+```javascript
+const updateRetailerProfile = async (profileData) => {
     const response = await fetch('/retailer/profile/', {
         method: 'PUT',
         headers: {
@@ -298,6 +399,276 @@ const createRetailerProfile = async (profileData) => {
     });
     return response.json();
 };
+
+// Usage for creating new profile
+const createProfile = async () => {
+    const profileData = {
+        business_name: 'My Retail Store',
+        contact_person: 'John Doe',
+        phone: '+1234567890',
+        email: 'contact@store.com',
+        address_line1: '123 Main St',
+        city: 'New York',
+        state: 'NY',
+        pincode: '10001'
+    };
+    
+    const result = await updateRetailerProfile(profileData);
+    if (result.message) {
+        console.log(result.message); // "Profile created successfully." or "Profile updated successfully."
+    }
+};
+```
+
+### Complete Profile Management Component
+```jsx
+import React, { useState, useEffect } from 'react';
+
+const RetailerProfileManager = ({ authToken }) => {
+    const [profileStatus, setProfileStatus] = useState(null);
+    const [profile, setProfile] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [editing, setEditing] = useState(false);
+    const [formData, setFormData] = useState({});
+
+    useEffect(() => {
+        loadProfileStatus();
+    }, []);
+
+    const loadProfileStatus = async () => {
+        try {
+            setLoading(true);
+            const response = await fetch('/retailer/check-profile/', {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            const data = await response.json();
+            setProfileStatus(data);
+            
+            if (data.has_profile) {
+                await loadProfile();
+            }
+        } catch (error) {
+            console.error('Error loading profile status:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadProfile = async () => {
+        try {
+            const response = await fetch('/retailer/profile/', {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            
+            if (response.ok) {
+                const profileData = await response.json();
+                setProfile(profileData);
+                setFormData(profileData);
+            }
+        } catch (error) {
+            console.error('Error loading profile:', error);
+        }
+    };
+
+    const handleSaveProfile = async () => {
+        try {
+            const response = await fetch('/retailer/profile/', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${authToken}`
+                },
+                body: JSON.stringify(formData)
+            });
+            
+            const result = await response.json();
+            if (response.ok) {
+                setProfile(result.profile);
+                setEditing(false);
+                alert(result.message);
+                // Refresh profile status
+                await loadProfileStatus();
+            } else {
+                console.error('Save failed:', result);
+            }
+        } catch (error) {
+            console.error('Error saving profile:', error);
+        }
+    };
+
+    const handleInputChange = (e) => {
+        setFormData({
+            ...formData,
+            [e.target.name]: e.target.value
+        });
+    };
+
+    if (loading) {
+        return <div>Loading profile...</div>;
+    }
+
+    if (!profileStatus?.has_profile && !editing) {
+        return (
+            <div className="no-profile">
+                <h2>Create Your Retailer Profile</h2>
+                <p>You need to create a retailer profile to access company features.</p>
+                <button onClick={() => setEditing(true)}>Create Profile</button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="retailer-profile">
+            <div className="profile-header">
+                <h2>Retailer Profile</h2>
+                {profile && (
+                    <div className="profile-stats">
+                        <span>Connected Companies: {profile.connected_companies_count}</span>
+                        <span>Total Orders: {profile.total_orders_count}</span>
+                        <span>Pending Requests: {profile.pending_requests_count}</span>
+                    </div>
+                )}
+            </div>
+
+            {editing ? (
+                <form className="profile-form">
+                    <h3>Business Information</h3>
+                    <input
+                        type="text"
+                        name="business_name"
+                        placeholder="Business Name"
+                        value={formData.business_name || ''}
+                        onChange={handleInputChange}
+                        required
+                    />
+                    <input
+                        type="text"
+                        name="contact_person"
+                        placeholder="Contact Person"
+                        value={formData.contact_person || ''}
+                        onChange={handleInputChange}
+                        required
+                    />
+                    <input
+                        type="tel"
+                        name="phone"
+                        placeholder="Phone Number"
+                        value={formData.phone || ''}
+                        onChange={handleInputChange}
+                        required
+                    />
+                    <input
+                        type="email"
+                        name="email"
+                        placeholder="Business Email"
+                        value={formData.email || ''}
+                        onChange={handleInputChange}
+                        required
+                    />
+                    
+                    <h3>Address Information</h3>
+                    <input
+                        type="text"
+                        name="address_line1"
+                        placeholder="Address Line 1"
+                        value={formData.address_line1 || ''}
+                        onChange={handleInputChange}
+                        required
+                    />
+                    <input
+                        type="text"
+                        name="address_line2"
+                        placeholder="Address Line 2 (Optional)"
+                        value={formData.address_line2 || ''}
+                        onChange={handleInputChange}
+                    />
+                    <input
+                        type="text"
+                        name="city"
+                        placeholder="City"
+                        value={formData.city || ''}
+                        onChange={handleInputChange}
+                        required
+                    />
+                    <input
+                        type="text"
+                        name="state"
+                        placeholder="State"
+                        value={formData.state || 'Tamil Nadu'}
+                        onChange={handleInputChange}
+                    />
+                    <input
+                        type="text"
+                        name="pincode"
+                        placeholder="PIN Code"
+                        value={formData.pincode || ''}
+                        onChange={handleInputChange}
+                        required
+                    />
+                    
+                    <h3>Additional Details</h3>
+                    <input
+                        type="text"
+                        name="gstin"
+                        placeholder="GSTIN (Optional)"
+                        value={formData.gstin || ''}
+                        onChange={handleInputChange}
+                    />
+                    <input
+                        type="text"
+                        name="business_type"
+                        placeholder="Business Type"
+                        value={formData.business_type || ''}
+                        onChange={handleInputChange}
+                    />
+                    <input
+                        type="number"
+                        name="established_year"
+                        placeholder="Established Year"
+                        value={formData.established_year || ''}
+                        onChange={handleInputChange}
+                    />
+                    
+                    <div className="form-actions">
+                        <button type="button" onClick={handleSaveProfile}>Save Profile</button>
+                        <button type="button" onClick={() => setEditing(false)}>Cancel</button>
+                    </div>
+                </form>
+            ) : (
+                <div className="profile-display">
+                    <div className="profile-section">
+                        <h3>Business Information</h3>
+                        <p><strong>Business Name:</strong> {profile?.business_name}</p>
+                        <p><strong>Contact Person:</strong> {profile?.contact_person}</p>
+                        <p><strong>Phone:</strong> {profile?.phone}</p>
+                        <p><strong>Email:</strong> {profile?.email}</p>
+                        <p><strong>Business Type:</strong> {profile?.business_type || 'Not specified'}</p>
+                        <p><strong>Established:</strong> {profile?.established_year || 'Not specified'}</p>
+                    </div>
+                    
+                    <div className="profile-section">
+                        <h3>Address</h3>
+                        <p>{profile?.address_line1}</p>
+                        {profile?.address_line2 && <p>{profile.address_line2}</p>}
+                        <p>{profile?.city}, {profile?.state} {profile?.pincode}</p>
+                        <p>{profile?.country}</p>
+                    </div>
+                    
+                    <div className="profile-section">
+                        <h3>Status</h3>
+                        <p><strong>Verified:</strong> {profile?.is_verified ? 'Yes' : 'No'}</p>
+                        <p><strong>Active:</strong> {profile?.is_active ? 'Yes' : 'No'}</p>
+                        {profile?.gstin && <p><strong>GSTIN:</strong> {profile.gstin}</p>}
+                    </div>
+                    
+                    <button onClick={() => setEditing(true)}>Edit Profile</button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default RetailerProfileManager;
 ```
 
 ### Joining by Invite Code

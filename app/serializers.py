@@ -309,6 +309,14 @@ class ResetPasswordSerializer(serializers.Serializer):
 # Retailer-specific Serializers
 class RetailerProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    user_first_name = serializers.CharField(source='user.first_name', read_only=True)
+    user_last_name = serializers.CharField(source='user.last_name', read_only=True)
+    
+    # Connection statistics
+    connected_companies_count = serializers.SerializerMethodField()
+    pending_requests_count = serializers.SerializerMethodField()
+    total_orders_count = serializers.SerializerMethodField()
     
     class Meta:
         model = RetailerProfile
@@ -316,6 +324,33 @@ class RetailerProfileSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'user': {'read_only': True}
         }
+    
+    def get_connected_companies_count(self, obj):
+        """Get count of connected companies"""
+        try:
+            return CompanyRetailerConnection.objects.filter(
+                retailer=obj,
+                status='approved'
+            ).count()
+        except:
+            return 0
+    
+    def get_pending_requests_count(self, obj):
+        """Get count of pending join requests"""
+        try:
+            return RetailerRequest.objects.filter(
+                retailer=obj,
+                status='pending'
+            ).count()
+        except:
+            return 0
+    
+    def get_total_orders_count(self, obj):
+        """Get total orders count for this retailer"""
+        try:
+            return Order.objects.filter(retailer=obj).count()
+        except:
+            return 0
 
 
 class CompanyRetailerConnectionSerializer(serializers.ModelSerializer):

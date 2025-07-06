@@ -1601,7 +1601,7 @@ def retailer_products(request):
 @permission_classes([IsAuthenticated])
 def retailer_profile(request):
     """
-    Get or update retailer profile
+    Get or update retailer profile for the current user
     """
     try:
         if request.method == 'GET':
@@ -1611,25 +1611,36 @@ def retailer_profile(request):
                 return Response(serializer.data, status=status.HTTP_200_OK)
             except RetailerProfile.DoesNotExist:
                 return Response({
-                    'error': 'Retailer profile not found. Please create a profile first.'
+                    'error': 'Retailer profile not found. Please create a profile first.',
+                    'has_profile': False
                 }, status=status.HTTP_404_NOT_FOUND)
         
         elif request.method == 'PUT':
             try:
                 profile = request.user.retailer_profile
+                # Update existing profile
                 serializer = RetailerProfileSerializer(profile, data=request.data, partial=True)
+                if serializer.is_valid():
+                    serializer.save()
+                    return Response({
+                        'message': 'Profile updated successfully.',
+                        'profile': serializer.data
+                    }, status=status.HTTP_200_OK)
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                
             except RetailerProfile.DoesNotExist:
                 # Create new profile if it doesn't exist
-                serializer = RetailerProfileSerializer(data=request.data)
+                data = request.data.copy()
+                data['user'] = request.user.id
+                
+                serializer = RetailerProfileSerializer(data=data)
                 if serializer.is_valid():
-                    serializer.save(user=request.user)
-                    return Response(serializer.data, status=status.HTTP_201_CREATED)
+                    profile = serializer.save(user=request.user)
+                    return Response({
+                        'message': 'Profile created successfully.',
+                        'profile': serializer.data
+                    }, status=status.HTTP_201_CREATED)
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-            
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
     except Exception as e:
         return Response({
@@ -1729,6 +1740,36 @@ def create_retailer_profile(request):
     except Exception as e:
         return Response({
             "error": f"An error occurred: {str(e)}"
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def check_retailer_profile(request):
+    """
+    Check if the current user has a retailer profile
+    """
+    try:
+        has_profile = hasattr(request.user, 'retailer_profile')
+        
+        response_data = {
+            'has_profile': has_profile,
+            'user_id': request.user.id,
+            'username': request.user.username,
+            'email': request.user.email
+        }
+        
+        if has_profile:
+            profile = request.user.retailer_profile
+            response_data['profile_id'] = profile.id
+            response_data['business_name'] = profile.business_name
+            response_data['is_verified'] = profile.is_verified
+            response_data['is_active'] = profile.is_active
+        
+        return Response(response_data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'error': f'An error occurred: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
