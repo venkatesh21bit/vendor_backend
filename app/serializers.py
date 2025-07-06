@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Product, Category, Retailer, Order, OrderItem, Employee, Truck, Shipment,Invoice, InvoiceItem,Company, PasswordResetOTP
+from .models import Product, Category, Retailer, Order, OrderItem, Employee, Truck, Shipment,Invoice, InvoiceItem,Company, PasswordResetOTP, RetailerProfile, CompanyRetailerConnection, CompanyInvite, RetailerRequest
 from django.contrib.auth.models import User, Group
 from django.contrib.auth import authenticate
 
@@ -261,3 +261,95 @@ class ResetPasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError("User does not exist.")
         
         return attrs
+
+
+# Retailer-specific Serializers
+class RetailerProfileSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+    
+    class Meta:
+        model = RetailerProfile
+        fields = '__all__'
+        extra_kwargs = {
+            'user': {'read_only': True}
+        }
+
+
+class CompanyRetailerConnectionSerializer(serializers.ModelSerializer):
+    company_name = serializers.CharField(source='company.name', read_only=True)
+    retailer_name = serializers.CharField(source='retailer.business_name', read_only=True)
+    
+    class Meta:
+        model = CompanyRetailerConnection
+        fields = '__all__'
+
+
+class PublicCompanySerializer(serializers.ModelSerializer):
+    """Serializer for public companies that retailers can discover"""
+    
+    class Meta:
+        model = Company
+        fields = ['id', 'name', 'description', 'city', 'state', 'created_at']
+
+
+class CompanyInviteSerializer(serializers.ModelSerializer):
+    company_name = serializers.CharField(source='company.name', read_only=True)
+    invited_by_name = serializers.CharField(source='invited_by.username', read_only=True)
+    
+    class Meta:
+        model = CompanyInvite
+        fields = '__all__'
+        extra_kwargs = {
+            'invite_code': {'read_only': True},
+            'invited_by': {'read_only': True}
+        }
+
+
+class RetailerRequestSerializer(serializers.ModelSerializer):
+    retailer_name = serializers.CharField(source='retailer.business_name', read_only=True)
+    company_name = serializers.CharField(source='company.name', read_only=True)
+    
+    class Meta:
+        model = RetailerRequest
+        fields = '__all__'
+        extra_kwargs = {
+            'retailer': {'read_only': True}
+        }
+
+
+class JoinByCodeSerializer(serializers.Serializer):
+    invite_code = serializers.CharField(max_length=20)
+    
+    def validate_invite_code(self, value):
+        try:
+            invite = CompanyInvite.objects.get(invite_code=value, is_used=False)
+            if invite.is_expired():
+                raise serializers.ValidationError("Invite code has expired.")
+            return value
+        except CompanyInvite.DoesNotExist:
+            raise serializers.ValidationError("Invalid or already used invite code.")
+
+
+# Update existing serializers to use new models
+class RetailerOrderSerializer(serializers.ModelSerializer):
+    """Serializer for orders from retailer perspective"""
+    company_name = serializers.CharField(source='company.name', read_only=True)
+    items = OrderItemSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = Order
+        fields = ['order_id', 'company', 'company_name', 'order_date', 'status', 'items']
+
+
+class RetailerProductSerializer(serializers.ModelSerializer):
+    """Serializer for products from retailer perspective"""
+    company_name = serializers.CharField(source='company.name', read_only=True)
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    
+    class Meta:
+        model = Product
+        fields = [
+            'product_id', 'name', 'category_name', 'company_name', 
+            'available_quantity', 'unit', 'price', 'hsn_code', 
+            'cgst_rate', 'sgst_rate', 'igst_rate', 'status'
+        ]

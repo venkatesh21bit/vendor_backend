@@ -17,6 +17,11 @@ class Company(models.Model):
     pincode = models.CharField(max_length=10)
     phone = models.CharField(max_length=15, blank=True, null=True)
     email = models.EmailField(blank=True, null=True)
+    
+    # Public visibility
+    is_public = models.BooleanField(default=False, help_text="Allow retailers to discover and request to join")
+    description = models.TextField(blank=True, null=True, help_text="Company description for retailers")
+    
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -129,8 +134,11 @@ class Product(models.Model):
 class Retailer(models.Model):
     retailer_id = models.AutoField(primary_key=True)
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="retailers")
+    
+    # Link to retailer profile
+    retailer_profile = models.ForeignKey('RetailerProfile', on_delete=models.CASCADE, null=True, blank=True, related_name="legacy_retailers")
 
-    # Basic Info
+    # Basic Info (keeping for backward compatibility)
     name = models.CharField(max_length=255)
     contact_person = models.CharField(max_length=255, blank=True, null=True)  # Optional
     email = models.EmailField(blank=True, null=True)
@@ -325,3 +333,128 @@ class PasswordResetOTP(models.Model):
     
     class Meta:
         ordering = ['-created_at']
+
+
+class RetailerProfile(models.Model):
+    """Extended profile for retailers"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="retailer_profile")
+    business_name = models.CharField(max_length=255)
+    contact_person = models.CharField(max_length=255)
+    phone = models.CharField(max_length=20)
+    email = models.EmailField()
+    
+    # Address
+    address_line1 = models.CharField(max_length=255)
+    address_line2 = models.CharField(max_length=255, blank=True, null=True)
+    city = models.CharField(max_length=100)
+    state = models.CharField(max_length=100)
+    pincode = models.CharField(max_length=10)
+    country = models.CharField(max_length=100, default='India')
+    
+    # Business Details
+    gstin = models.CharField(max_length=15, blank=True, null=True)
+    business_type = models.CharField(max_length=100, blank=True, null=True)
+    established_year = models.IntegerField(blank=True, null=True)
+    
+    # Status
+    is_verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.business_name} - {self.user.username}"
+
+
+class CompanyRetailerConnection(models.Model):
+    """Many-to-many relationship between companies and retailer profiles"""
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="retailer_connections")
+    retailer = models.ForeignKey(RetailerProfile, on_delete=models.CASCADE, related_name="company_connections")
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('suspended', 'Suspended')
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    
+    # Connection details
+    connected_at = models.DateTimeField(auto_now_add=True)
+    approved_at = models.DateTimeField(blank=True, null=True)
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_connections")
+    
+    # Business terms
+    credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0, blank=True)
+    payment_terms = models.CharField(max_length=100, blank=True, null=True)
+    
+    class Meta:
+        unique_together = ('company', 'retailer')
+    
+    def __str__(self):
+        return f"{self.company.name} <-> {self.retailer.business_name} ({self.status})"
+
+
+class CompanyInvite(models.Model):
+    """Invitation system for companies to invite retailers"""
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="invites")
+    invited_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_invites")
+    
+    # Invite details
+    invite_code = models.CharField(max_length=20, unique=True)
+    email = models.EmailField()
+    message = models.TextField(blank=True, null=True)
+    
+    # Status
+    is_used = models.BooleanField(default=False)
+    used_by = models.ForeignKey(RetailerProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name="used_invites")
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(blank=True, null=True)
+    
+    def save(self, *args, **kwargs):
+        if not self.invite_code:
+            self.invite_code = self.generate_invite_code()
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timedelta(days=7)  # Expires in 7 days
+        super().save(*args, **kwargs)
+    
+    @staticmethod
+    def generate_invite_code():
+        """Generate a unique invite code"""
+        return ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
+    
+    def is_expired(self):
+        """Check if invite has expired"""
+        return timezone.now() > self.expires_at
+    
+    def __str__(self):
+        return f"Invite from {self.company.name} to {self.email} - {self.invite_code}"
+
+
+class RetailerRequest(models.Model):
+    """Requests from retailers to join companies"""
+    retailer = models.ForeignKey(RetailerProfile, on_delete=models.CASCADE, related_name="join_requests")
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="retailer_requests")
+    
+    # Request details
+    message = models.TextField(blank=True, null=True)
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected')
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    
+    # Timestamps
+    requested_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(blank=True, null=True)
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="reviewed_requests")
+    
+    class Meta:
+        unique_together = ('retailer', 'company')
+    
+    def __str__(self):
+        return f"{self.retailer.business_name} -> {self.company.name} ({self.status})"

@@ -9,11 +9,17 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework import status,viewsets,permissions,serializers
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Count, Sum
-from .models import Employee, Retailer, Order, Truck, Shipment, Product, Category,OdooCredentials,Invoice,Company, PasswordResetOTP
+from django.utils import timezone
+from .models import (
+    Employee, Retailer, Order, Truck, Shipment, Product, Category, OdooCredentials, Invoice, Company, 
+    PasswordResetOTP, RetailerProfile, CompanyRetailerConnection, CompanyInvite, RetailerRequest
+)
 from .serializers import (
     EmployeeSerializer, RetailerSerializer, CompanySerializer,
     OrderSerializer,InvoiceSerializer, ProductSerializer, TruckSerializer, ShipmentSerializer, CategorySerializer,UserRegistrationSerializer,
-    ForgotPasswordSerializer, VerifyOTPSerializer, ResetPasswordSerializer
+    ForgotPasswordSerializer, VerifyOTPSerializer, ResetPasswordSerializer,
+    RetailerProfileSerializer, CompanyRetailerConnectionSerializer, PublicCompanySerializer, 
+    CompanyInviteSerializer, RetailerRequestSerializer, JoinByCodeSerializer, RetailerOrderSerializer, RetailerProductSerializer
 )
 from .allocation import allocate_shipments
 from django.db.models import F
@@ -779,169 +785,366 @@ def forgot_password(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def verify_otp(request):
+# Retailer API Views
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def retailer_companies(request):
     """
-    API to verify the OTP sent to user's email.
+    Get companies connected to the current retailer
     """
-    serializer = VerifyOTPSerializer(data=request.data)
-    
-    if serializer.is_valid():
-        otp_instance = serializer.validated_data['otp_instance']
-        
-        # Mark OTP as verified
-        otp_instance.is_verified = True
-        otp_instance.save()
-        
-        return Response({
-            'message': 'OTP verified successfully. You can now reset your password.',
-            'username': otp_instance.user.username,
-            'otp': otp_instance.otp  # Include OTP for password reset step
-        }, status=status.HTTP_200_OK)
-    
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def reset_password(request):
-    """
-    API to reset user's password after OTP verification.
-    """
-    serializer = ResetPasswordSerializer(data=request.data)
-    
-    if serializer.is_valid():
-        user = serializer.validated_data['user']
-        otp_instance = serializer.validated_data['otp_instance']
-        new_password = serializer.validated_data['new_password']
-        
-        # Reset the password
-        user.set_password(new_password)
-        user.save()
-        
-        # Delete the used OTP
-        otp_instance.delete()
-        
-        # Send confirmation email
-        send_password_reset_confirmation(user)
-        
-        return Response({
-            'message': 'Password reset successfully. You can now login with your new password.'
-        }, status=status.HTTP_200_OK)
-    
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def resend_otp(request):
-    """
-    API to resend OTP if the previous one expired or was not received.
-    """
-    username = request.data.get('username')
-    
-    if not username:
-        return Response({
-            'error': 'Username is required.'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
     try:
-        user = User.objects.get(username=username)
-        
-        # Delete any existing OTPs for this user
-        PasswordResetOTP.objects.filter(user=user).delete()
-        
-        # Create new OTP
-        otp_instance = PasswordResetOTP.objects.create(user=user)
-        
-        # Send OTP via email
-        email_sent = send_otp_email(user, otp_instance.otp)
-        
-        if email_sent:
-            return Response({
-                'message': 'New OTP sent successfully to your email address.'
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response({
-                'error': 'Failed to send OTP email. Please try again.'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            
-    except User.DoesNotExist:
+        retailer_profile = request.user.retailer_profile
+        connections = CompanyRetailerConnection.objects.filter(
+            retailer=retailer_profile,
+            status='approved'
+        )
+        serializer = CompanyRetailerConnectionSerializer(connections, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    except RetailerProfile.DoesNotExist:
         return Response({
-            'error': 'User does not exist.'
+            'error': 'Retailer profile not found. Please create a retailer profile first.'
         }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_companies(request):
+    """
+    Get list of public companies that retailers can join
+    """
+    companies = Company.objects.filter(is_public=True)
+    serializer = PublicCompanySerializer(companies, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def update_product_quantities(request):
+def send_company_invite(request):
     """
-    API to update product quantities when invoice is created.
-    Expects: {
-        "product_updates": [
-            {
-                "product_id": 1,
-                "shipped_quantity": 50,
-                "reduce_available": true  // optional, default false
-            }
-        ]
-    }
+    Send invitation to retailer (for company users)
     """
     try:
-        product_updates = request.data.get('product_updates', [])
-        
-        if not product_updates:
+        # Check if user has a company
+        company = request.user.companies.first()
+        if not company:
             return Response({
-                'error': 'product_updates field is required with product data'
+                'error': 'You must be associated with a company to send invites.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        email = request.data.get('email')
+        message = request.data.get('message', '')
+        
+        if not email:
+            return Response({
+                'error': 'Email is required.'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        updated_products = []
+        # Check if invite already exists for this email and company
+        existing_invite = CompanyInvite.objects.filter(
+            company=company,
+            email=email,
+            is_used=False
+        ).first()
         
-        with transaction.atomic():  # Ensure all updates succeed or none do
-            for update_data in product_updates:
-                product_id = update_data.get('product_id')
-                shipped_quantity = update_data.get('shipped_quantity', 0)
-                reduce_available = update_data.get('reduce_available', False)
+        if existing_invite and not existing_invite.is_expired():
+            return Response({
+                'error': 'An active invitation already exists for this email.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create invite
+        invite = CompanyInvite.objects.create(
+            company=company,
+            invited_by=request.user,
+            email=email,
+            message=message
+        )
+        
+        # Send email with invite link
+        from .utils import send_company_invite_email
+        email_sent = send_company_invite_email(invite)
+        
+        serializer = CompanyInviteSerializer(invite)
+        
+        if email_sent:
+            return Response({
+                'message': 'Invitation sent successfully.',
+                'invite': serializer.data
+            }, status=status.HTTP_201_CREATED)
+        else:
+            return Response({
+                'message': 'Invitation created but email sending failed.',
+                'invite': serializer.data
+            }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        return Response({
+            'error': f'An error occurred: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def generate_invite_code(request):
+    """
+    Generate a new invite code for company (without sending email)
+    """
+    try:
+        # Check if user has a company
+        company = request.user.companies.first()
+        if not company:
+            return Response({
+                'error': 'You must be associated with a company to generate invite codes.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        message = request.data.get('message', '')
+        expires_in_days = request.data.get('expires_in_days', 7)  # Default 7 days
+        
+        # Validate expires_in_days
+        if expires_in_days < 1 or expires_in_days > 30:
+            return Response({
+                'error': 'Expiration must be between 1 and 30 days.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create invite without email (for sharing manually)
+        invite = CompanyInvite.objects.create(
+            company=company,
+            invited_by=request.user,
+            email='',  # Empty email for manual sharing
+            message=message
+        )
+        
+        # Update expiration based on provided days
+        invite.expires_at = timezone.now() + timedelta(days=expires_in_days)
+        invite.save()
+        
+        serializer = CompanyInviteSerializer(invite)
+        return Response({
+            'message': 'Invite code generated successfully.',
+            'invite_code': invite.invite_code,
+            'expires_at': invite.expires_at,
+            'invite': serializer.data
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        return Response({
+            'error': f'An error occurred: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_company_invites(request):
+    """
+    Get all invites sent by the company
+    """
+    try:
+        # Check if user has a company
+        company = request.user.companies.first()
+        if not company:
+            return Response({
+                'error': 'You must be associated with a company.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        invites = CompanyInvite.objects.filter(company=company).order_by('-created_at')
+        serializer = CompanyInviteSerializer(invites, many=True)
+        
+        return Response(serializer.data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'error': f'An error occurred: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_retailer_requests(request):
+    """
+    Get all retailer requests for the company
+    """
+    try:
+        # Check if user has a company
+        company = request.user.companies.first()
+        if not company:
+            return Response({
+                'error': 'You must be associated with a company.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        requests = RetailerRequest.objects.filter(company=company).order_by('-requested_at')
+        serializer = RetailerRequestSerializer(requests, many=True)
+        
+        return Response(serializer.data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'error': f'An error occurred: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def accept_retailer_request(request):
+    """
+    Accept or reject a retailer request
+    """
+    try:
+        # Check if user has a company
+        company = request.user.companies.first()
+        if not company:
+            return Response({
+                'error': 'You must be associated with a company.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        request_id = request.data.get('request_id')
+        action = request.data.get('action')  # 'approve' or 'reject'
+        credit_limit = request.data.get('credit_limit', 0)
+        payment_terms = request.data.get('payment_terms', '')
+        
+        if not request_id or not action:
+            return Response({
+                'error': 'request_id and action are required.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if action not in ['approve', 'reject']:
+            return Response({
+                'error': 'action must be either "approve" or "reject".'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            retailer_request = RetailerRequest.objects.get(
+                id=request_id,
+                company=company,
+                status='pending'
+            )
+        except RetailerRequest.DoesNotExist:
+            return Response({
+                'error': 'Request not found or already processed.'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        with transaction.atomic():
+            if action == 'approve':
+                # Update request status
+                retailer_request.status = 'approved'
+                retailer_request.reviewed_at = timezone.now()
+                retailer_request.reviewed_by = request.user
+                retailer_request.save()
                 
-                if not product_id:
-                    return Response({
-                        'error': 'product_id is required for each product update'
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                # Create connection
+                connection = CompanyRetailerConnection.objects.create(
+                    company=company,
+                    retailer=retailer_request.retailer,
+                    status='approved',
+                    approved_by=request.user,
+                    approved_at=timezone.now(),
+                    credit_limit=credit_limit,
+                    payment_terms=payment_terms
+                )
                 
-                try:
-                    product = Product.objects.get(product_id=product_id)
-                    
-                    # Update total shipped quantity
-                    product.total_shipped += shipped_quantity
-                    
-                    # Optionally reduce available quantity
-                    if reduce_available:
-                        if product.available_quantity >= shipped_quantity:
-                            product.available_quantity -= shipped_quantity
-                        else:
-                            return Response({
-                                'error': f'Insufficient available quantity for product {product.name}. Available: {product.available_quantity}, Requested: {shipped_quantity}'
-                            }, status=status.HTTP_400_BAD_REQUEST)
-                    
-                    # Save the product (this will trigger the update_status method)
-                    product.save()
-                    
-                    updated_products.append({
-                        'product_id': product.product_id,
-                        'product_name': product.name,
-                        'total_shipped': product.total_shipped,
-                        'available_quantity': product.available_quantity,
-                        'status': product.status
-                    })
-                    
-                except Product.DoesNotExist:
-                    return Response({
-                        'error': f'Product with ID {product_id} does not exist'
-                    }, status=status.HTTP_404_NOT_FOUND)
+                # Send approval email
+                from .utils import send_request_status_email
+                send_request_status_email(retailer_request, approved=True)
+                
+                return Response({
+                    'message': 'Retailer request approved successfully.',
+                    'connection_id': connection.id
+                }, status=status.HTTP_200_OK)
+                
+            else:  # reject
+                # Update request status
+                retailer_request.status = 'rejected'
+                retailer_request.reviewed_at = timezone.now()
+                retailer_request.reviewed_by = request.user
+                retailer_request.save()
+                
+                # Send rejection email
+                from .utils import send_request_status_email
+                send_request_status_email(retailer_request, approved=False)
+                
+                return Response({
+                    'message': 'Retailer request rejected.'
+                }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'error': f'An error occurred: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_company_connections(request):
+    """
+    Get all retailer connections for the company
+    """
+    try:
+        # Check if user has a company
+        company = request.user.companies.first()
+        if not company:
+            return Response({
+                'error': 'You must be associated with a company.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        status_filter = request.query_params.get('status', 'approved')
+        
+        connections = CompanyRetailerConnection.objects.filter(
+            company=company,
+            status=status_filter
+        ).order_by('-connected_at')
+        
+        serializer = CompanyRetailerConnectionSerializer(connections, many=True)
+        
+        return Response(serializer.data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'error': f'An error occurred: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_connection_status(request):
+    """
+    Update retailer connection status (suspend/reactivate)
+    """
+    try:
+        # Check if user has a company
+        company = request.user.companies.first()
+        if not company:
+            return Response({
+                'error': 'You must be associated with a company.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        connection_id = request.data.get('connection_id')
+        new_status = request.data.get('status')  # 'approved' or 'suspended'
+        
+        if not connection_id or not new_status:
+            return Response({
+                'error': 'connection_id and status are required.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if new_status not in ['approved', 'suspended']:
+            return Response({
+                'error': 'status must be either "approved" or "suspended".'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            connection = CompanyRetailerConnection.objects.get(
+                id=connection_id,
+                company=company
+            )
+        except CompanyRetailerConnection.DoesNotExist:
+            return Response({
+                'error': 'Connection not found.'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        connection.status = new_status
+        connection.save()
+        
+        action_text = "suspended" if new_status == 'suspended' else "reactivated"
         
         return Response({
-            'message': 'Product quantities updated successfully',
-            'updated_products': updated_products
+            'message': f'Connection {action_text} successfully.'
         }, status=status.HTTP_200_OK)
         
     except Exception as e:

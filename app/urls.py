@@ -6,7 +6,11 @@ from .views import (
     CustomAuthToken, ProductViewSet,CategoryViewSet,add_retailer,get_employee_id,logout_view, get_employees, get_retailers,get_counts,
     get_orders,get_users,get_employee_orders,recent_actions,get_employee_shipments,update_shipment_status,get_logged_in_user,allocate_order, get_trucks, get_shipments,category_stock_data,store_qr_code,
     save_odoo_credentials,register_user,get_available_employees_for_order, get_available_groups, InvoiceViewSet, CompanyViewSet, shipment_stats, invoice_count, approve_order,
-    forgot_password, verify_otp, reset_password, resend_otp, update_product_quantities
+    forgot_password, verify_otp, reset_password, resend_otp, update_product_quantities,
+    retailer_companies, public_companies, send_company_invite, join_by_code, request_company_approval,
+    retailer_counts, retailer_companies_count, retailer_orders, retailer_products, retailer_profile,
+    generate_invite_code, get_company_invites, get_retailer_requests, accept_retailer_request,
+    get_company_connections, update_connection_status
 )
 # Add the router for InvoiceViewSet
 router = DefaultRouter()
@@ -59,6 +63,26 @@ urlpatterns = [
     
     # Product Quantity Update Endpoint
     path('update-product-quantities/', update_product_quantities, name='update_product_quantities'),
+    
+    # Retailer API Endpoints
+    path('retailer/companies/', retailer_companies, name='retailer_companies'),
+    path('companies/public/', public_companies, name='public_companies'),
+    path('retailer/join-by-invite/', send_company_invite, name='send_company_invite'),
+    path('retailer/join-by-code/', join_by_code, name='join_by_code'),
+    path('retailer/request-approval/', request_company_approval, name='request_company_approval'),
+    path('retailer/count/', retailer_counts, name='retailer_counts'),
+    path('retailer/companies/count/', retailer_companies_count, name='retailer_companies_count'),
+    path('retailer/orders/', retailer_orders, name='retailer_orders'),
+    path('retailer/products/', retailer_products, name='retailer_products'),
+    path('retailer/profile/', retailer_profile, name='retailer_profile'),
+    
+    # Company Management API Endpoints
+    path('company/generate-invite-code/', generate_invite_code, name='generate_invite_code'),
+    path('company/invites/', get_company_invites, name='get_company_invites'),
+    path('company/retailer-requests/', get_retailer_requests, name='get_retailer_requests'),
+    path('company/accept-request/', accept_retailer_request, name='accept_retailer_request'),
+    path('company/connections/', get_company_connections, name='get_company_connections'),
+    path('company/update-connection/', update_connection_status, name='update_connection_status'),
     
      # Add router URLs here
     path('', include(router.urls)),
