@@ -460,18 +460,8 @@ def get_shipments(request):
         company_id = request.query_params.get("company")
         if not company_id:
             return Response({"error": "company_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Get retailers connected to this company
-        connected_retailers = CompanyRetailerConnection.objects.filter(
-            company_id=company_id,
-            status='approved'
-        ).values_list('retailer_id', flat=True)
-        
-        # Filter shipments by orders from connected retailers
-        shipments = Shipment.objects.filter(
-            order__retailer_id__in=connected_retailers
-        ).order_by("-shipment_date")
-        
+        # Filter shipments by company via the related order's company
+        shipments = Shipment.objects.filter(order__company_id=company_id).order_by("-shipment_date")
         paginator = StandardPagination()
         paginated_shipments = paginator.paginate_queryset(shipments, request)
         serializer = ShipmentSerializer(paginated_shipments, many=True)
@@ -619,18 +609,8 @@ def get_counts(request):
         if not company_id:
             return Response({"error": "company_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get retailers connected to this company
-        connected_retailers = CompanyRetailerConnection.objects.filter(
-            company_id=company_id,
-            status='approved'
-        ).values_list('retailer_id', flat=True)
-
-        # Count orders from connected retailers
-        order_count = Order.objects.filter(retailer_id__in=connected_retailers).count()
-        pending_order_count = Order.objects.filter(
-            retailer_id__in=connected_retailers, 
-            status="pending"
-        ).count()
+        order_count = Order.objects.filter(company_id=company_id).count()
+        pending_order_count = Order.objects.filter(company_id=company_id, status="pending").count()
         employee_count = Employee.objects.filter(company_id=company_id).count()
         # Use RetailerProfile and get count via CompanyRetailerConnection
         retailer_count = CompanyRetailerConnection.objects.filter(
