@@ -12,11 +12,11 @@ from django.db.models import Count, Sum
 from django.utils import timezone
 from datetime import timedelta
 from .models import (
-    Employee, Order, Truck, Shipment, Product, Category, OdooCredentials, Invoice, Company, 
+    Employee, Retailer, Order, Truck, Shipment, Product, Category, OdooCredentials, Invoice, Company, 
     PasswordResetOTP, RetailerProfile, CompanyRetailerConnection, CompanyInvite, RetailerRequest
 )
 from .serializers import (
-    EmployeeSerializer, CompanySerializer,
+    EmployeeSerializer, RetailerSerializer, CompanySerializer,
     OrderSerializer,InvoiceSerializer, ProductSerializer, TruckSerializer, ShipmentSerializer, CategorySerializer,UserRegistrationSerializer,
     ForgotPasswordSerializer, VerifyOTPSerializer, ResetPasswordSerializer,
     RetailerProfileSerializer, CompanyRetailerConnectionSerializer, PublicCompanySerializer, 
@@ -289,7 +289,7 @@ def add_retailer(request):
         # Use current logged-in user for retailer profile
         data['user'] = request.user.id
 
-    serializer = RetailerProfileSerializer(data=data)
+    serializer = RetailerSerializer(data=data)
     if serializer.is_valid():
         retailer = serializer.save()
         
@@ -404,19 +404,12 @@ def get_retailers(request):
     try:
         company_id = request.query_params.get("company")
         if company_id:
-            # Get retailers connected to this company
-            connections = CompanyRetailerConnection.objects.filter(
-                company_id=company_id, 
-                status='accepted'
-            ).select_related('retailer')
-            retailers = [conn.retailer for conn in connections]
+            retailers = Retailer.objects.filter(company_id=company_id)
         else:
-            # Get all retailer profiles
-            retailers = RetailerProfile.objects.all()
-        
+            retailers = Retailer.objects.all()
         paginator = StandardPagination()
         paginated_retailers = paginator.paginate_queryset(retailers, request)
-        serializer = RetailerProfileSerializer(paginated_retailers, many=True)
+        serializer = RetailerSerializer(paginated_retailers, many=True)
         return paginator.get_paginated_response(serializer.data)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -612,11 +605,7 @@ def get_counts(request):
         order_count = Order.objects.filter(company_id=company_id).count()
         pending_order_count = Order.objects.filter(company_id=company_id, status="pending").count()
         employee_count = Employee.objects.filter(company_id=company_id).count()
-        # Use RetailerProfile and get count via CompanyRetailerConnection
-        retailer_count = CompanyRetailerConnection.objects.filter(
-            company_id=company_id, 
-            status='accepted'
-        ).count()
+        retailer_count = Retailer.objects.filter(company_id=company_id).count()
 
         return Response(
             {
@@ -1737,7 +1726,7 @@ def create_retailer_profile(request):
         data.pop('company', None)
         data.pop('company_id', None)
         
-        serializer = RetailerProfileSerializer(data=data)
+        serializer = RetailerSerializer(data=data)
         if serializer.is_valid():
             retailer = serializer.save()
             
