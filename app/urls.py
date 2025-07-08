@@ -30,7 +30,6 @@ urlpatterns = [
 
     # ✅ API Endpoints (Protected)
     path('retailers/add/', add_retailer, name='add_retailer'),
-    path('retailers/create-profile/', create_retailer_profile, name='create_retailer_profile'),
     path("employees/", get_employees, name="get_employees"),  # Admin Only
     path("retailers/", get_retailers, name="get_retailers"),  # Admin Only
     path("orders/", get_orders, name="get_orders"),  # Admin & Employees

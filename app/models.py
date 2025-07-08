@@ -131,16 +131,19 @@ class Product(models.Model):
     def __str__(self):
         return self.name
 
-class RetailerProfile(models.Model):
-    """Comprehensive retailer profile model"""
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="retailer_profile")
+class Retailer(models.Model):
+    retailer_id = models.AutoField(primary_key=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="retailers")
     
-    # Business Info
-    business_name = models.CharField(max_length=255)  # Main business name
-    contact_person = models.CharField(max_length=255)
-    phone = models.CharField(max_length=20)
-    email = models.EmailField()
-    
+    # Link to retailer profile
+    retailer_profile = models.ForeignKey('RetailerProfile', on_delete=models.CASCADE, null=True, blank=True, related_name="legacy_retailers")
+
+    # Basic Info (keeping for backward compatibility)
+    name = models.CharField(max_length=255)
+    contact_person = models.CharField(max_length=255, blank=True, null=True)  # Optional
+    email = models.EmailField(blank=True, null=True)
+    contact = models.CharField(max_length=20)
+
     # Address
     address_line1 = models.CharField(max_length=255)
     address_line2 = models.CharField(max_length=255, blank=True, null=True)
@@ -148,28 +151,25 @@ class RetailerProfile(models.Model):
     state = models.CharField(max_length=100, default='Tamil Nadu')
     pincode = models.CharField(max_length=10)
     country = models.CharField(max_length=100, default='India')
-    
-    # Business Details
-    gstin = models.CharField(max_length=15, blank=True, null=True)
-    business_type = models.CharField(max_length=100, blank=True, null=True)
-    established_year = models.IntegerField(blank=True, null=True)
-    
-    # Status
+
+    # Tax Info
+    gstin = models.CharField(max_length=15, blank=True)
+
+    # Business logic
+    distance_from_warehouse = models.FloatField(help_text="Distance in kilometers")
     is_active = models.BooleanField(default=True)
-    is_verified = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
-    def __str__(self):
-        return f"{self.business_name} - {self.city}, {self.state}"
 
-# Legacy alias for backward compatibility
-Retailer = RetailerProfile
+    def __str__(self):
+        return f"{self.name} - {self.city}, {self.state}"
 
 
 class Order(models.Model):
     order_id = models.AutoField(primary_key=True)
-    retailer = models.ForeignKey(RetailerProfile, on_delete=models.CASCADE, related_name="orders")
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="orders")
+    retailer = models.ForeignKey(Retailer, on_delete=models.CASCADE)
     order_date = models.DateTimeField(auto_now_add=True)
     STATUS_CHOICES = [
         ('pending', 'Pending'),
@@ -180,7 +180,7 @@ class Order(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
 
     def __str__(self):
-        return f"Order {self.order_id} - {self.retailer.business_name}"
+        return f"Order {self.order_id} - {self.retailer.name}"
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
@@ -193,7 +193,7 @@ class OrderItem(models.Model):
 class Invoice(models.Model):
     invoice_number = models.CharField(max_length=20, unique=False)
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="invoices")
-    retailer = models.ForeignKey(RetailerProfile, on_delete=models.CASCADE, related_name="invoices", null=True, blank=True)
+    Retailer = models.ForeignKey(Retailer, on_delete=models.CASCADE)
     invoice_date = models.DateTimeField()
     due_date = models.DateField(blank=True, null=True)
     is_einvoice_generated = models.BooleanField(default=False)
@@ -211,7 +211,7 @@ class Invoice(models.Model):
         unique_together = ('invoice_number', 'company') 
 
     def __str__(self):
-        return f"Invoice {self.invoice_number} - {self.retailer.business_name if self.retailer else 'No Retailer'}"
+        return f"Invoice {self.invoice_number} - {self.Retailer.name}"
 
 class InvoiceItem(models.Model):
     invoice = models.ForeignKey(Invoice, related_name='items', on_delete=models.CASCADE)
@@ -242,7 +242,7 @@ class Truck(models.Model):
 class Employee(models.Model):
     employee_id = models.AutoField(primary_key=True)  # ✅ Ensuring ID is auto-generated
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="employees")
-    retailer = models.ForeignKey(RetailerProfile, on_delete=models.CASCADE, related_name="employees", null=True, blank=True)
+    retailer = models.ForeignKey(Retailer, on_delete=models.CASCADE, related_name="employees", null=True, blank=True)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="employee_profile", null=True)
     contact = models.CharField(max_length=20, default="Not Provided")
     truck = models.OneToOneField(Truck, on_delete=models.CASCADE, null=True, blank=True)
@@ -335,9 +335,38 @@ class PasswordResetOTP(models.Model):
         ordering = ['-created_at']
 
 
+class RetailerProfile(models.Model):
+    """Extended profile for retailers"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="retailer_profile")
+    business_name = models.CharField(max_length=255)
+    contact_person = models.CharField(max_length=255)
+    phone = models.CharField(max_length=20)
+    email = models.EmailField()
+    
+    # Address
+    address_line1 = models.CharField(max_length=255)
+    address_line2 = models.CharField(max_length=255, blank=True, null=True)
+    city = models.CharField(max_length=100)
+    state = models.CharField(max_length=100)
+    pincode = models.CharField(max_length=10)
+    country = models.CharField(max_length=100, default='India')
+    
+    # Business Details
+    gstin = models.CharField(max_length=15, blank=True, null=True)
+    business_type = models.CharField(max_length=100, blank=True, null=True)
+    established_year = models.IntegerField(blank=True, null=True)
+    
+    # Status
+    is_verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.business_name} - {self.user.username}"
+
 
 class CompanyRetailerConnection(models.Model):
-    """Many-to-many relationship between companies and retailers"""
+    """Many-to-many relationship between companies and retailer profiles"""
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="retailer_connections")
     retailer = models.ForeignKey(RetailerProfile, on_delete=models.CASCADE, related_name="company_connections")
     
