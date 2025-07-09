@@ -192,7 +192,7 @@ class OrderItem(models.Model):
 class Invoice(models.Model):
     invoice_number = models.CharField(max_length=20, unique=False)
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="invoices")
-    retailer = models.ForeignKey(Retailer, on_delete=models.CASCADE, related_name="invoices")
+    retailer = models.ForeignKey(Retailer, on_delete=models.CASCADE, related_name="retailer_invoices")
     invoice_date = models.DateTimeField()
     due_date = models.DateField(blank=True, null=True)
     is_einvoice_generated = models.BooleanField(default=False)
