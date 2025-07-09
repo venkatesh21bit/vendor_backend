@@ -16,7 +16,7 @@ from .models import (
     PasswordResetOTP, RetailerProfile, CompanyRetailerConnection, CompanyInvite, RetailerRequest
 )
 from .serializers import (
-    EmployeeSerializer, RetailerSerializer, CompanySerializer,
+    EmployeeSerializer, CompanySerializer,
     OrderSerializer,InvoiceSerializer, ProductSerializer, TruckSerializer, ShipmentSerializer, CategorySerializer,UserRegistrationSerializer,
     ForgotPasswordSerializer, VerifyOTPSerializer, ResetPasswordSerializer,
     RetailerProfileSerializer, CompanyRetailerConnectionSerializer, PublicCompanySerializer, 
@@ -227,11 +227,34 @@ def add_retailer(request):
         return Response({"error": "company_id is required"}, status=status.HTTP_400_BAD_REQUEST)
     data['company'] = company_id
 
-    serializer = RetailerSerializer(data=data)
-    if serializer.is_valid():
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    # Create retailer directly since we removed RetailerSerializer
+    try:
+        company = Company.objects.get(id=company_id)
+        retailer = Retailer.objects.create(
+            company=company,
+            name=data.get('name', ''),
+            contact_person=data.get('contact_person', ''),
+            email=data.get('email', ''),
+            contact=data.get('contact', ''),
+            address_line1=data.get('address_line1', ''),
+            address_line2=data.get('address_line2', ''),
+            city=data.get('city', ''),
+            state=data.get('state', 'Tamil Nadu'),
+            pincode=data.get('pincode', ''),
+            country=data.get('country', 'India'),
+            gstin=data.get('gstin', ''),
+            distance_from_warehouse=data.get('distance_from_warehouse', 0.0),
+            is_active=data.get('is_active', True)
+        )
+        return Response({
+            "message": "Retailer created successfully",
+            "retailer_id": retailer.retailer_id,
+            "name": retailer.name
+        }, status=status.HTTP_201_CREATED)
+    except Company.DoesNotExist:
+        return Response({"error": "Company not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -337,8 +360,23 @@ def get_retailers(request):
             retailers = Retailer.objects.all()
         paginator = StandardPagination()
         paginated_retailers = paginator.paginate_queryset(retailers, request)
-        serializer = RetailerSerializer(paginated_retailers, many=True)
-        return paginator.get_paginated_response(serializer.data)
+        
+        # Manual serialization since RetailerSerializer was removed
+        retailer_data = []
+        for retailer in paginated_retailers:
+            retailer_data.append({
+                'retailer_id': retailer.retailer_id,
+                'name': retailer.name,
+                'contact_person': retailer.contact_person,
+                'email': retailer.email,
+                'contact': retailer.contact,
+                'city': retailer.city,
+                'state': retailer.state,
+                'is_active': retailer.is_active,
+                'company_name': retailer.company.name if retailer.company else None
+            })
+        
+        return paginator.get_paginated_response(retailer_data)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -386,7 +424,7 @@ def get_shipments(request):
         retailer_ids = Retailer.objects.filter(company_id=company_id).values_list('retailer_id', flat=True)
         
         # Filter shipments by orders from these retailers
-        shipments = Shipment.objects.filter(order__retailer_id__in=retailer_ids).order_by("-shipment_date")
+        shipments = Shipment.objects.filter(order__retailer__in=retailer_ids).order_by("-shipment_date")
         paginator = StandardPagination()
         paginated_shipments = paginator.paginate_queryset(shipments, request)
         serializer = ShipmentSerializer(paginated_shipments, many=True)
@@ -538,8 +576,8 @@ def get_counts(request):
         retailer_ids = Retailer.objects.filter(company_id=company_id).values_list('retailer_id', flat=True)
         
         # Count orders through retailers
-        order_count = Order.objects.filter(retailer_id__in=retailer_ids).count()
-        pending_order_count = Order.objects.filter(retailer_id__in=retailer_ids, status="pending").count()
+        order_count = Order.objects.filter(retailer__in=retailer_ids).count()
+        pending_order_count = Order.objects.filter(retailer__in=retailer_ids, status="pending").count()
         employee_count = Employee.objects.filter(company_id=company_id).count()
         retailer_count = Retailer.objects.filter(company_id=company_id).count()
 
@@ -1662,7 +1700,7 @@ def create_retailer_profile(request):
         data.pop('company', None)
         data.pop('company_id', None)
         
-        serializer = RetailerSerializer(data=data)
+        serializer = RetailerProfileSerializer(data=data)
         if serializer.is_valid():
             retailer = serializer.save()
             
