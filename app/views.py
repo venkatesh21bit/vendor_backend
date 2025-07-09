@@ -381,8 +381,12 @@ def get_shipments(request):
         company_id = request.query_params.get("company")
         if not company_id:
             return Response({"error": "company_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-        # Filter shipments by company via the related order's company
-        shipments = Shipment.objects.filter(order__company_id=company_id).order_by("-shipment_date")
+        
+        # Get retailers for this company
+        retailer_ids = Retailer.objects.filter(company_id=company_id).values_list('retailer_id', flat=True)
+        
+        # Filter shipments by orders from these retailers
+        shipments = Shipment.objects.filter(order__retailer_id__in=retailer_ids).order_by("-shipment_date")
         paginator = StandardPagination()
         paginated_shipments = paginator.paginate_queryset(shipments, request)
         serializer = ShipmentSerializer(paginated_shipments, many=True)
@@ -405,7 +409,7 @@ def get_available_employees_for_order(request):
     except Order.DoesNotExist:
         return Response({"error": "Order not found"}, status=404)
 
-    company_employees = Employee.objects.filter(company=order.company)
+    company_employees = Employee.objects.filter(company=order.retailer.company)
     retailer_employees = Employee.objects.filter(retailer=order.retailer)
 
     serializer = EmployeeSerializer(list(company_employees) + list(retailer_employees), many=True)
@@ -530,8 +534,12 @@ def get_counts(request):
         if not company_id:
             return Response({"error": "company_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        order_count = Order.objects.filter(company_id=company_id).count()
-        pending_order_count = Order.objects.filter(company_id=company_id, status="pending").count()
+        # Get retailers for this company
+        retailer_ids = Retailer.objects.filter(company_id=company_id).values_list('retailer_id', flat=True)
+        
+        # Count orders through retailers
+        order_count = Order.objects.filter(retailer_id__in=retailer_ids).count()
+        pending_order_count = Order.objects.filter(retailer_id__in=retailer_ids, status="pending").count()
         employee_count = Employee.objects.filter(company_id=company_id).count()
         retailer_count = Retailer.objects.filter(company_id=company_id).count()
 

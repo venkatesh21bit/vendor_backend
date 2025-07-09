@@ -168,7 +168,6 @@ class Retailer(models.Model):
 
 class Order(models.Model):
     order_id = models.AutoField(primary_key=True)
-    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="orders")
     retailer = models.ForeignKey(Retailer, on_delete=models.CASCADE)
     order_date = models.DateTimeField(auto_now_add=True)
     STATUS_CHOICES = [
