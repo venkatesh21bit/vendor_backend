@@ -82,8 +82,8 @@ class OdooCredentialsAdmin(admin.ModelAdmin):
 
 @admin.register(Invoice)
 class InvoiceAdmin(admin.ModelAdmin):
-    list_display = ('invoice_number', 'Retailer', 'invoice_date', 'grand_total',  'is_einvoice_generated')
+    list_display = ('invoice_number', 'retailer', 'invoice_date', 'grand_total',  'is_einvoice_generated')
 
 @admin.register(InvoiceItem)
 class InvoiceItemAdmin(admin.ModelAdmin):
-    list_display = ('invoice', 'Product', 'quantity', 'taxable_value')
+    list_display = ('invoice', 'product', 'quantity', 'taxable_value')

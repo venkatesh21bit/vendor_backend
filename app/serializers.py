@@ -153,18 +153,18 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceItem
         fields = [
-            'Product', 'quantity','price', 'taxable_value', 'gst_rate',
+            'product', 'quantity','price', 'taxable_value', 'gst_rate',
             'cgst', 'sgst', 'igst', 'hsn_code'
         ]
 
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True)
-    retailer_name = serializers.CharField(source='Retailer.name', read_only=True)  
+    retailer_name = serializers.CharField(source='retailer.name', read_only=True)  
 
     class Meta:
         model = Invoice
         fields = [
-            'invoice_number', 'company', 'Retailer','retailer_name', 'invoice_date','due_date',
+            'invoice_number', 'company', 'retailer','retailer_name', 'invoice_date','due_date',
             'is_einvoice_generated', 'irn', 'qr_code',
             'total_taxable_value', 'total_cgst', 'total_sgst', 'total_igst',
             'grand_total', 'payment_mode', 'payment_status', 'items'

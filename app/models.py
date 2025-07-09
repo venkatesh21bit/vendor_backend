@@ -192,7 +192,7 @@ class OrderItem(models.Model):
 class Invoice(models.Model):
     invoice_number = models.CharField(max_length=20, unique=False)
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="invoices")
-    Retailer = models.ForeignKey(Retailer, on_delete=models.CASCADE)
+    retailer = models.ForeignKey(Retailer, on_delete=models.CASCADE, related_name="invoices")
     invoice_date = models.DateTimeField()
     due_date = models.DateField(blank=True, null=True)
     is_einvoice_generated = models.BooleanField(default=False)
@@ -210,11 +210,11 @@ class Invoice(models.Model):
         unique_together = ('invoice_number', 'company') 
 
     def __str__(self):
-        return f"Invoice {self.invoice_number} - {self.Retailer.name}"
+        return f"Invoice {self.invoice_number} - {self.retailer.name}"
 
 class InvoiceItem(models.Model):
     invoice = models.ForeignKey(Invoice, related_name='items', on_delete=models.CASCADE)
-    Product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="invoice_items")
     quantity = models.IntegerField()
     price = models.DecimalField(max_digits=10, decimal_places=2) 
     taxable_value = models.DecimalField(max_digits=10, decimal_places=2)
@@ -225,7 +225,7 @@ class InvoiceItem(models.Model):
     hsn_code = models.CharField(max_length=20, blank=True, null=True)
 
     def __str__(self):
-        return f"{self.Product.name} x {self.quantity} (Invoice {self.invoice.invoice_number})"
+        return f"{self.product.name} x {self.quantity} (Invoice {self.invoice.invoice_number})"
 
 class Truck(models.Model):
     truck_id = models.AutoField(primary_key=True)
