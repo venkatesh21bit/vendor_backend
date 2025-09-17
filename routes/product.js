@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Product = require('../models/Product');
 const ProductCategory = require('../models/ProductCategory');
 const Company = require('../models/Company');
@@ -165,10 +166,24 @@ router.get('/products/:id', authMiddleware, async (req, res) => {
 // POST /api/products/ - Create new product
 router.post('/products', authMiddleware, validate(schemas.createProduct), async (req, res) => {
   try {
-    const { company: companyId, ...productData } = req.body;
+    const { company: companyId, category: categoryId, ...productData } = req.body;
+
+    // Handle company ID conversion
+    let targetCompanyId = companyId;
+    if (typeof companyId === 'number') {
+      // If it's a number, try to find the company by ID
+      const company = await Company.findOne({ 
+        $or: [
+          { _id: mongoose.Types.ObjectId.isValid(companyId.toString()) ? companyId.toString() : null },
+          { id: companyId }
+        ]
+      });
+      if (company) {
+        targetCompanyId = company._id;
+      }
+    }
 
     // If no company specified, use user's company (for manufacturers)
-    let targetCompanyId = companyId;
     if (!targetCompanyId && req.user.role === 'manufacturer') {
       const userCompany = await Company.findOne({ owner: req.userId });
       if (!userCompany) {
@@ -188,16 +203,30 @@ router.post('/products', authMiddleware, validate(schemas.createProduct), async 
     // Check company access
     await checkCompanyAccess(targetCompanyId, req.userId, req.user.role);
 
-    // Validate category if provided
-    if (productData.category) {
-      const category = await ProductCategory.findOne({
-        _id: productData.category,
-        company: targetCompanyId
-      });
-      if (!category) {
-        return res.status(400).json({
-          error: 'Invalid category for this company'
+    // Handle category ID conversion
+    let targetCategoryId = null;
+    if (categoryId) {
+      if (typeof categoryId === 'number') {
+        // If it's a number, try to find the category by ID
+        const category = await ProductCategory.findOne({ 
+          $or: [
+            { _id: mongoose.Types.ObjectId.isValid(categoryId.toString()) ? categoryId.toString() : null },
+            { id: categoryId }
+          ],
+          company: targetCompanyId
         });
+        if (category) {
+          targetCategoryId = category._id;
+        }
+      } else if (mongoose.Types.ObjectId.isValid(categoryId)) {
+        // Validate category if provided as ObjectId
+        const category = await ProductCategory.findOne({
+          _id: categoryId,
+          company: targetCompanyId
+        });
+        if (category) {
+          targetCategoryId = category._id;
+        }
       }
     }
 
@@ -210,6 +239,7 @@ router.post('/products', authMiddleware, validate(schemas.createProduct), async 
     const product = new Product({
       ...productData,
       company: targetCompanyId,
+      category: targetCategoryId,
       created_by: req.userId,
       updated_by: req.userId
     });

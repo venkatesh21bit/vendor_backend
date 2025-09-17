@@ -79,7 +79,15 @@ const schemas = {
     name: Joi.string().min(1).max(100).required(),
     description: Joi.string().max(1000),
     sku: Joi.string().max(50),
-    category: Joi.string().pattern(/^[0-9a-fA-F]{24}$/),
+    category: Joi.alternatives().try(
+      Joi.string().pattern(/^[0-9a-fA-F]{24}$/), // MongoDB ObjectId
+      Joi.number(), // Number from frontend
+      Joi.string().allow(null, '') // Allow empty strings
+    ).allow(null),
+    company: Joi.alternatives().try(
+      Joi.string().pattern(/^[0-9a-fA-F]{24}$/), // MongoDB ObjectId
+      Joi.number() // Number from frontend
+    ).required(),
     price: Joi.number().min(0).required(),
     cost_price: Joi.number().min(0),
     available_quantity: Joi.number().min(0).required(),
@@ -87,11 +95,12 @@ const schemas = {
     total_required_quantity: Joi.number().min(0),
     reorder_level: Joi.number().min(0),
     unit: Joi.string().valid('PCS', 'KG', 'LITER', 'METER', 'GRAM', 'BOX', 'PACK', 'SET').required(),
-    hsn_code: Joi.string().max(20),
+    hsn_code: Joi.string().max(20).allow(''),
     cgst_rate: Joi.number().min(0).max(100),
     sgst_rate: Joi.number().min(0).max(100),
     igst_rate: Joi.number().min(0).max(100),
     cess_rate: Joi.number().min(0).max(100),
+    status: Joi.string().valid('active', 'inactive', 'discontinued').default('active'),
     tags: Joi.array().items(Joi.string().max(50)),
     manufacturer_part_number: Joi.string().max(50),
     barcode: Joi.string().max(50),
