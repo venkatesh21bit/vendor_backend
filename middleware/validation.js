@@ -7,9 +7,7 @@ const schemas = {
     username: Joi.string().alphanum().min(3).max(30).required(),
     email: Joi.string().email().required(),
     password: Joi.string().min(6).required(),
-    first_name: Joi.string().min(1).max(50).required(),
-    last_name: Joi.string().min(1).max(50).required(),
-    role: Joi.string().valid('manufacturer', 'retailer', 'employee').required()
+    group_name: Joi.string().valid('Manufacturers', 'Retailers', 'Suppliers', 'Delivery Agents', 'Distributors').required()
   }),
 
   // User login

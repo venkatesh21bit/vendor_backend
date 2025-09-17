@@ -25,7 +25,7 @@ const generateTokens = (userId) => {
 // POST /api/register
 router.post('/register', validate(schemas.registerUser), async (req, res) => {
   try {
-    const { username, email, password, first_name, last_name, role } = req.body;
+    const { username, email, password, group_name } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({
@@ -38,14 +38,24 @@ router.post('/register', validate(schemas.registerUser), async (req, res) => {
       });
     }
 
+    // Map group_name to role for backward compatibility
+    const roleMapping = {
+      'Manufacturers': 'manufacturer',
+      'Retailers': 'retailer', 
+      'Suppliers': 'supplier',
+      'Delivery Agents': 'delivery_agent',
+      'Distributors': 'distributor'
+    };
+
     // Create new user
     const user = new User({
       username,
       email,
       password,
-      first_name,
-      last_name,
-      role,
+      first_name: username, // Use username as first_name temporarily
+      last_name: '', // Empty last_name for now
+      role: roleMapping[group_name] || 'retailer', // Default to retailer if mapping fails
+      groups: [group_name], // Store the original group name
       email_verification_token: crypto.randomBytes(32).toString('hex')
     });
 
@@ -69,6 +79,7 @@ router.post('/register', validate(schemas.registerUser), async (req, res) => {
         first_name: user.first_name,
         last_name: user.last_name,
         role: user.role,
+        groups: user.groups,
         is_staff: user.is_staff
       }
     });

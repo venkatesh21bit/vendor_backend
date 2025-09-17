@@ -24,13 +24,13 @@ const userSchema = new mongoose.Schema({
   },
   first_name: {
     type: String,
-    required: true,
-    trim: true
+    trim: true,
+    default: ''
   },
   last_name: {
     type: String,
-    required: true,
-    trim: true
+    trim: true,
+    default: ''
   },
   is_staff: {
     type: Boolean,
@@ -42,7 +42,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['manufacturer', 'retailer', 'employee'],
+    enum: ['manufacturer', 'retailer', 'employee', 'supplier', 'delivery_agent', 'distributor'],
     required: true
   },
   groups: [{
