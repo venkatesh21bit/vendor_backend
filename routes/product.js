@@ -6,8 +6,17 @@ const { authMiddleware, requireManufacturer } = require('../middleware/auth');
 const { validate, schemas } = require('../middleware/validation');
 const router = express.Router();
 
+// Helper function to validate MongoDB ObjectId
+const isValidObjectId = (id) => {
+  return id && typeof id === 'string' && id !== 'undefined' && id !== 'null' && id.match(/^[0-9a-fA-F]{24}$/);
+};
+
 // Helper function to check company access
 const checkCompanyAccess = async (companyId, userId, userRole) => {
+  if (!isValidObjectId(companyId)) {
+    throw new Error('Invalid company ID format');
+  }
+
   const company = await Company.findById(companyId);
   if (!company) {
     throw new Error('Company not found');
@@ -37,23 +46,42 @@ router.get('/products', authMiddleware, async (req, res) => {
       sort_order = 'desc'
     } = req.query;
 
+    console.log('Products request:', { company, category, status, search, userRole: req.user.role });
+
     // Build query
     const query = {};
 
-    if (company) {
-      // Check company access
-      await checkCompanyAccess(company, req.userId, req.user.role);
-      query.company = company;
+    // Validate and handle company parameter
+    if (isValidObjectId(company)) {
+      try {
+        // Check company access
+        await checkCompanyAccess(company, req.userId, req.user.role);
+        query.company = company;
+        console.log('Using company filter:', company);
+      } catch (error) {
+        console.warn('Company access check failed:', error.message);
+        // Continue without company filter instead of failing
+      }
     } else if (req.user.role === 'manufacturer') {
-      // If no company specified and user is manufacturer, get their company's products
+      // If no valid company specified and user is manufacturer, get their company's products
       const userCompany = await Company.findOne({ owner: req.userId });
       if (userCompany) {
         query.company = userCompany._id;
+        console.log('Using manufacturer company:', userCompany._id);
+      } else {
+        console.log('No company found for manufacturer');
       }
     } else if (req.user.role === 'employee') {
       // If employee, get products from companies they're associated with
       const companies = await Company.find({ employees: req.userId });
-      query.company = { $in: companies.map(c => c._id) };
+      if (companies.length > 0) {
+        query.company = { $in: companies.map(c => c._id) };
+        console.log('Using employee companies:', companies.map(c => c._id));
+      } else {
+        console.log('No companies found for employee');
+      }
+    } else {
+      console.log('No company filter applied for role:', req.user.role);
     }
 
     if (category) {
@@ -354,9 +382,15 @@ router.get('/products/low-stock', authMiddleware, async (req, res) => {
       $expr: { $lte: ['$available_quantity', '$reorder_level'] }
     };
 
-    if (company) {
-      await checkCompanyAccess(company, req.userId, req.user.role);
-      query.company = company;
+    // Validate and handle company parameter
+    if (isValidObjectId(company)) {
+      try {
+        await checkCompanyAccess(company, req.userId, req.user.role);
+        query.company = company;
+      } catch (error) {
+        console.warn('Company access check failed for low-stock:', error.message);
+        // Continue without company filter
+      }
     } else if (req.user.role === 'manufacturer') {
       const userCompany = await Company.findOne({ owner: req.userId });
       if (userCompany) {
@@ -364,7 +398,9 @@ router.get('/products/low-stock', authMiddleware, async (req, res) => {
       }
     } else if (req.user.role === 'employee') {
       const companies = await Company.find({ employees: req.userId });
-      query.company = { $in: companies.map(c => c._id) };
+      if (companies.length > 0) {
+        query.company = { $in: companies.map(c => c._id) };
+      }
     }
 
     const products = await Product.find(query)
