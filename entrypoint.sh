@@ -1,15 +1,16 @@
-#!/bin/bash
+#!/bin/sh
 set -e  # Exit on any error
-echo "🚀 ENTRYPOINT: Running Django migrations and starting server..."
 
-echo "Running database migrations..."
-python manage.py migrate --noinput
+echo "🚀 ENTRYPOINT: Starting Express.js server..."
 
-echo "Collecting static files..."
-python manage.py collectstatic --noinput
+# Wait for MongoDB to be ready (if using MongoDB)
+if [ -n "$MONGODB_URI" ]; then
+    echo "⏳ Waiting for MongoDB connection..."
+    # You can add a wait script here if needed
+fi
 
-echo "Creating superuser..."
-python manage.py shell < create_superuser.py || echo "Superuser creation skipped (may already exist)"
+echo "📦 Node.js version: $(node --version)"
+echo "📦 NPM version: $(npm --version)"
 
-echo "Starting gunicorn..."
-exec gunicorn main.wsgi:application --bind 0.0.0.0:$PORT
+echo "🌐 Starting server on port ${PORT:-8000}..."
+exec npm start
