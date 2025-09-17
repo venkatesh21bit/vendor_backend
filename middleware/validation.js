@@ -1,5 +1,45 @@
 const Joi = require('joi');
 
+// Custom GSTIN validation function
+const validateGSTIN = (value, helpers) => {
+  if (!value || value === '') {
+    return value; // Allow empty values
+  }
+  
+  // If it's a valid GSTIN format (15 characters)
+  const gstinPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+  if (gstinPattern.test(value)) {
+    return value; // Valid GSTIN format
+  }
+  
+  // If it's just numbers or simple format, allow it
+  if (value.length <= 15 && /^[0-9A-Za-z]+$/.test(value)) {
+    return value; // Allow partial/simple format
+  }
+  
+  return helpers.error('string.gstin');
+};
+
+// Custom PAN validation function  
+const validatePAN = (value, helpers) => {
+  if (!value || value === '') {
+    return value; // Allow empty values
+  }
+  
+  // If it's a valid PAN format
+  const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+  if (panPattern.test(value)) {
+    return value; // Valid PAN format
+  }
+  
+  // If it's just alphanumeric and reasonable length
+  if (value.length <= 10 && /^[0-9A-Za-z]+$/.test(value)) {
+    return value; // Allow partial/simple format
+  }
+  
+  return helpers.error('string.pan');
+};
+
 // Validation schemas
 const schemas = {
   // User registration
@@ -24,13 +64,13 @@ const schemas = {
     address_line1: Joi.string().max(100),
     city: Joi.string().max(50),
     state: Joi.string().max(50),
-    pincode: Joi.string().pattern(/^\d{6}$/),
-    phone: Joi.string().pattern(/^[\+]?[1-9][\d]{0,15}$/),
-    email: Joi.string().email(),
-    website: Joi.string().uri(),
-    gstin: Joi.string().pattern(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/),
-    pan: Joi.string().pattern(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/),
-    industry: Joi.string().max(50),
+    pincode: Joi.string().pattern(/^\d{4,6}$/).allow(''),
+    phone: Joi.string().pattern(/^[\+]?[0-9\s\-\(\)]{7,15}$/).allow(''),
+    email: Joi.string().email().allow(''),
+    website: Joi.string().uri().allow(''),
+    gstin: Joi.string().custom(validateGSTIN).optional(),
+    pan: Joi.string().custom(validatePAN).optional(),
+    industry: Joi.string().max(50).allow(''),
     is_public: Joi.boolean()
   }),
 
@@ -92,11 +132,11 @@ const schemas = {
     city: Joi.string().min(1).max(50).required(),
     state: Joi.string().min(1).max(50).required(),
     pincode: Joi.string().pattern(/^\d{6}$/).required(),
-    gstin: Joi.string().pattern(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/),
-    pan: Joi.string().pattern(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/),
-    business_type: Joi.string().valid('sole_proprietorship', 'partnership', 'private_limited', 'public_limited', 'llp'),
-    license_number: Joi.string().max(50),
-    website: Joi.string().uri()
+    gstin: Joi.string().custom(validateGSTIN).optional(),
+    pan: Joi.string().custom(validatePAN).optional(),
+    business_type: Joi.string().valid('sole_proprietorship', 'partnership', 'private_limited', 'public_limited', 'llp').allow(''),
+    license_number: Joi.string().max(50).allow(''),
+    website: Joi.string().uri().allow('')
   }),
 
   // Invoice creation
@@ -168,7 +208,17 @@ const schemas = {
 // Validation middleware factory
 const validate = (schema) => {
   return (req, res, next) => {
-    const { error } = schema.validate(req.body);
+    const { error } = schema.validate(req.body, {
+      abortEarly: false, // Show all validation errors
+      messages: {
+        'string.gstin': 'GSTIN should be either empty or in valid format (e.g., 22ABCDE1234F1Z1)',
+        'string.pan': 'PAN should be either empty or in valid format (e.g., ABCDE1234F)',
+        'string.email': 'Please provide a valid email address',
+        'string.uri': 'Please provide a valid website URL',
+        'string.pattern.base': 'Please check the format of this field'
+      }
+    });
+    
     if (error) {
       return res.status(400).json({
         error: 'Validation error',
