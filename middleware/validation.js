@@ -79,15 +79,8 @@ const schemas = {
     name: Joi.string().min(1).max(100).required(),
     description: Joi.string().max(1000),
     sku: Joi.string().max(50),
-    category: Joi.alternatives().try(
-      Joi.string().pattern(/^[0-9a-fA-F]{24}$/), // MongoDB ObjectId
-      Joi.number(), // Number from frontend
-      Joi.string().allow(null, '') // Allow empty strings
-    ).allow(null),
-    company: Joi.alternatives().try(
-      Joi.string().pattern(/^[0-9a-fA-F]{24}$/), // MongoDB ObjectId
-      Joi.number() // Number from frontend
-    ),
+    category: Joi.any().allow(null), // Accept any format, handle conversion in route
+    company: Joi.any().required(), // Accept any format, handle conversion in route
     price: Joi.number().min(0).required(),
     cost_price: Joi.number().min(0),
     available_quantity: Joi.number().min(0).required(),

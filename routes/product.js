@@ -166,6 +166,11 @@ router.get('/products/:id', authMiddleware, async (req, res) => {
 // POST /api/products/ - Create new product
 router.post('/products', authMiddleware, validate(schemas.createProduct), async (req, res) => {
   try {
+    console.log('=== PRODUCT CREATION DEBUG ===');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('Company value:', req.body.company, 'Type:', typeof req.body.company);
+    console.log('Category value:', req.body.category, 'Type:', typeof req.body.category);
+    
     const { company: companyId, category: categoryId, ...productData } = req.body;
 
     // Handle company ID conversion
