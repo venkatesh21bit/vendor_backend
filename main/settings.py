@@ -22,12 +22,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-0g%4t%hc#)7fvdq(vc)1hu68^7d%0b2%epp19ycla+d9lc0kec'
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-0g%4t%hc#)7fvdq(vc)1hu68^7d%0b2%epp19ycla+d9lc0kec')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = ['*']
+# Configure allowed hosts for Render
+ALLOWED_HOSTS = []
+if 'RENDER' in os.environ:
+    ALLOWED_HOSTS.append(os.environ.get('RENDER_EXTERNAL_HOSTNAME'))
+if os.environ.get('ALLOWED_HOSTS'):
+    ALLOWED_HOSTS.extend(os.environ.get('ALLOWED_HOSTS').split(','))
+if DEBUG:
+    ALLOWED_HOSTS.extend(['localhost', '127.0.0.1', '*'])
 
 
 
@@ -86,14 +93,25 @@ WSGI_APPLICATION = 'main.wsgi.application'
 
 print("DEBUG: DATABASE_URL =", os.environ.get('DATABASE_URL'))
 
-
-DATABASES = {
-    'default': dj_database_url.config(
-        default=os.environ.get('DATABASE_URL'),
-        conn_max_age=600,
-        ssl_require=True  # Required for Railway PostgreSQL
-    )
+# Default database configuration
+default_db_config = {
+    'ENGINE': 'django.db.backends.sqlite3',
+    'NAME': BASE_DIR / 'db.sqlite3',
 }
+
+# Use PostgreSQL if DATABASE_URL is provided (for production)
+if os.environ.get('DATABASE_URL'):
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.environ.get('DATABASE_URL'),
+            conn_max_age=600,
+            ssl_require=True if 'render' in os.environ.get('DATABASE_URL', '').lower() else False
+        )
+    }
+else:
+    DATABASES = {
+        'default': default_db_config
+    }
 
 
 # Password validation
