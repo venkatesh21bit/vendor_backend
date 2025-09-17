@@ -9,15 +9,25 @@ const router = express.Router();
 
 // Helper function to validate MongoDB ObjectId
 const isValidObjectId = (id) => {
-  return id && typeof id === 'string' && id !== 'undefined' && id !== 'null' && id.match(/^[0-9a-fA-F]{24}$/);
+  if (!id) return false;
+  
+  // Handle ObjectId objects
+  if (mongoose.Types.ObjectId.isValid(id)) {
+    return true;
+  }
+  
+  // Handle string representations
+  if (typeof id === 'string' && id !== 'undefined' && id !== 'null' && id.match(/^[0-9a-fA-F]{24}$/)) {
+    return true;
+  }
+  
+  return false;
 };
 
 // Helper function to check company access
 const checkCompanyAccess = async (companyId, userId, userRole) => {
-  if (!isValidObjectId(companyId)) {
-    throw new Error('Invalid company ID format');
-  }
-
+  console.log('checkCompanyAccess called with:', { companyId, userId, userRole, type: typeof companyId });
+  
   const company = await Company.findById(companyId);
   if (!company) {
     throw new Error('Company not found');
