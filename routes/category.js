@@ -1,11 +1,21 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const ProductCategory = require('../models/ProductCategory');
 const Company = require('../models/Company');
 const { authMiddleware } = require('../middleware/auth');
 const router = express.Router();
 
+// Helper function to validate ObjectId
+const isValidObjectId = (id) => {
+  return mongoose.Types.ObjectId.isValid(id);
+};
+
 // Helper function to check company access
 const checkCompanyAccess = async (companyId, userId, userRole) => {
+  if (!isValidObjectId(companyId)) {
+    throw new Error('Invalid company ID format');
+  }
+  
   const company = await Company.findById(companyId);
   if (!company) {
     throw new Error('Company not found');
@@ -21,27 +31,90 @@ const checkCompanyAccess = async (companyId, userId, userRole) => {
   return company;
 };
 
-// GET /api/categories/ - Get categories
-router.get('/categories', authMiddleware, async (req, res) => {
+// GET /api/categories/list - Simple list of categories for current user (for dropdowns)
+router.get('/categories/list', authMiddleware, async (req, res) => {
   try {
-    const { company, page = 1, limit = 50 } = req.query;
+    console.log('GET /api/categories/list - User:', { userId: req.userId, role: req.user.role });
 
-    const query = {};
+    const query = { is_active: true };
 
-    if (company) {
-      await checkCompanyAccess(company, req.userId, req.user.role);
-      query.company = company;
-    } else if (req.user.role === 'manufacturer') {
+    // Find user's companies
+    if (req.user.role === 'manufacturer') {
       const userCompany = await Company.findOne({ owner: req.userId });
       if (userCompany) {
         query.company = userCompany._id;
+      } else {
+        // No company found, return empty list
+        return res.json([]);
       }
     } else if (req.user.role === 'employee') {
       const companies = await Company.find({ employees: req.userId });
-      query.company = { $in: companies.map(c => c._id) };
+      if (companies.length > 0) {
+        query.company = { $in: companies.map(c => c._id) };
+      } else {
+        // No companies found, return empty list
+        return res.json([]);
+      }
+    } else if (req.user.role === 'retailer') {
+      // Retailers can see all categories
+      // Remove company filter for retailers
+    }
+
+    console.log('Categories list query:', query);
+
+    const categories = await ProductCategory.find(query)
+      .select('_id name description')
+      .sort({ sort_order: 1, name: 1 });
+
+    console.log('Found categories for list:', categories.length);
+
+    // Transform to frontend format
+    const transformedCategories = categories.map(cat => ({
+      category_id: cat._id,
+      name: cat.name,
+      description: cat.description
+    }));
+
+    res.json(transformedCategories);
+  } catch (error) {
+    console.error('Get categories list error:', error);
+    res.status(500).json({ error: 'Server error while fetching categories' });
+  }
+});
+
+// GET /api/categories/ - Get categories
+router.get('/categories', authMiddleware, async (req, res) => {
+  try {
+    const { company, page = 1, limit = 50, format } = req.query;
+
+    console.log('GET /api/categories - Query params:', { company, page, limit, format });
+    console.log('User:', { userId: req.userId, role: req.user.role });
+
+    const query = {};
+
+    // Handle company parameter more gracefully
+    if (company && company !== 'undefined' && isValidObjectId(company)) {
+      await checkCompanyAccess(company, req.userId, req.user.role);
+      query.company = company;
+    } else if (!company || company === 'undefined') {
+      // No company specified or undefined - find user's company
+      if (req.user.role === 'manufacturer') {
+        const userCompany = await Company.findOne({ owner: req.userId });
+        if (userCompany) {
+          query.company = userCompany._id;
+        }
+      } else if (req.user.role === 'employee') {
+        const companies = await Company.find({ employees: req.userId });
+        query.company = { $in: companies.map(c => c._id) };
+      }
+    } else if (company && company !== 'undefined' && !isValidObjectId(company)) {
+      console.log('Invalid company ObjectId:', company);
+      return res.status(400).json({ error: 'Invalid company ID format' });
     }
 
     query.is_active = true;
+
+    console.log('Category query:', query);
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -54,6 +127,19 @@ router.get('/categories', authMiddleware, async (req, res) => {
 
     const total = await ProductCategory.countDocuments(query);
 
+    console.log('Found categories:', categories.length, 'total:', total);
+
+    // For simple list format (used by frontend dropdowns)
+    if (format === 'simple' || page === '1' && limit === '50' && !company) {
+      const transformedCategories = categories.map(cat => ({
+        category_id: cat._id,
+        name: cat.name,
+        description: cat.description
+      }));
+      return res.json(transformedCategories);
+    }
+
+    // Default paginated format
     res.json({
       results: categories,
       pagination: {
