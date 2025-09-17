@@ -87,7 +87,7 @@ const schemas = {
     company: Joi.alternatives().try(
       Joi.string().pattern(/^[0-9a-fA-F]{24}$/), // MongoDB ObjectId
       Joi.number() // Number from frontend
-    ).required(),
+    ),
     price: Joi.number().min(0).required(),
     cost_price: Joi.number().min(0),
     available_quantity: Joi.number().min(0).required(),
@@ -100,7 +100,7 @@ const schemas = {
     sgst_rate: Joi.number().min(0).max(100),
     igst_rate: Joi.number().min(0).max(100),
     cess_rate: Joi.number().min(0).max(100),
-    status: Joi.string().valid('active', 'inactive', 'discontinued').default('active'),
+    status: Joi.string().valid('sufficient', 'low_stock', 'out_of_stock', 'discontinued').default('sufficient'),
     tags: Joi.array().items(Joi.string().max(50)),
     manufacturer_part_number: Joi.string().max(50),
     barcode: Joi.string().max(50),
