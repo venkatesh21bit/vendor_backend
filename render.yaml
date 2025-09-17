@@ -16,8 +16,10 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
+        length: 32
       - key: JWT_REFRESH_SECRET
         generateValue: true
+        length: 32
       - key: JWT_EXPIRES_IN
         value: "24h"
       - key: JWT_REFRESH_EXPIRES_IN

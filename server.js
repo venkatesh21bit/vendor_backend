@@ -111,10 +111,35 @@ app.use(errorHandler);
 
 // Start server
 const PORT = process.env.PORT || 8000;
+
+// Check critical environment variables
+const checkEnvVars = () => {
+  const requiredVars = ['MONGODB_URI', 'JWT_SECRET'];
+  const missingVars = [];
+  
+  requiredVars.forEach(varName => {
+    if (!process.env[varName]) {
+      missingVars.push(varName);
+    }
+  });
+  
+  if (missingVars.length > 0) {
+    console.warn('⚠️  Missing environment variables:', missingVars.join(', '));
+    console.warn('🔧 Using fallback values for development');
+  } else {
+    console.log('✅ All required environment variables are set');
+  }
+  
+  console.log('🌍 Environment:', process.env.NODE_ENV || 'development');
+  console.log('🔑 JWT Secret:', process.env.JWT_SECRET ? '✅ Set' : '❌ Missing (using fallback)');
+  console.log('🍃 MongoDB:', process.env.MONGODB_URI ? '✅ Set' : '❌ Missing');
+};
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📍 API Base URL: http://localhost:${PORT}/api`);
   console.log(`🏥 Health Check: http://localhost:${PORT}/health`);
+  checkEnvVars();
 });
 
 module.exports = app;

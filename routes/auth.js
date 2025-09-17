@@ -7,15 +7,23 @@ const router = express.Router();
 
 // Generate JWT tokens
 const generateTokens = (userId) => {
+  // Ensure JWT secrets are available
+  const jwtSecret = process.env.JWT_SECRET || 'fallback-secret-key-for-development';
+  const jwtRefreshSecret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'fallback-refresh-secret-key';
+  
+  if (!process.env.JWT_SECRET) {
+    console.warn('⚠️  JWT_SECRET not found in environment variables, using fallback');
+  }
+  
   const accessToken = jwt.sign(
     { userId },
-    process.env.JWT_SECRET,
+    jwtSecret,
     { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
   );
   
   const refreshToken = jwt.sign(
     { userId },
-    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+    jwtRefreshSecret,
     { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d' }
   );
   
@@ -155,7 +163,8 @@ router.post('/token/refresh', async (req, res) => {
 
     try {
       // Verify refresh token
-      const decoded = jwt.verify(refresh, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET);
+      const jwtRefreshSecret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'fallback-refresh-secret-key';
+      const decoded = jwt.verify(refresh, jwtRefreshSecret);
       
       // Find user and check if refresh token matches
       const user = await User.findOne({
@@ -171,9 +180,10 @@ router.post('/token/refresh', async (req, res) => {
       }
 
       // Generate new access token
+      const jwtSecret = process.env.JWT_SECRET || 'fallback-secret-key-for-development';
       const accessToken = jwt.sign(
         { userId: user._id },
-        process.env.JWT_SECRET,
+        jwtSecret,
         { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
       );
 
@@ -259,9 +269,10 @@ router.post('/verify-otp', validate(schemas.verifyOTP), async (req, res) => {
     }
 
     // Generate temporary token for password reset
+    const jwtSecret = process.env.JWT_SECRET || 'fallback-secret-key-for-development';
     const resetToken = jwt.sign(
       { userId: user._id, type: 'password_reset' },
-      process.env.JWT_SECRET,
+      jwtSecret,
       { expiresIn: '15m' }
     );
 
@@ -281,7 +292,8 @@ router.post('/reset-password', validate(schemas.resetPassword), async (req, res)
     const { token, new_password } = req.body;
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const jwtSecret = process.env.JWT_SECRET || 'fallback-secret-key-for-development';
+      const decoded = jwt.verify(token, jwtSecret);
       
       if (decoded.type !== 'password_reset') {
         return res.status(400).json({
