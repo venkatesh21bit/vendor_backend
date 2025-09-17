@@ -43,16 +43,35 @@ const DEFAULT_GROUPS = [
 // GET /api/groups - Get all available groups/roles
 router.get('/groups', (req, res) => {
   try {
+    // Return just the group names as expected by frontend
+    const groupNames = DEFAULT_GROUPS.map(group => group.display_name);
+    
+    console.log('Groups requested, returning:', groupNames); // Debug log
+    
     res.json({
-      success: true,
-      data: DEFAULT_GROUPS,
-      message: 'Groups retrieved successfully'
+      groups: groupNames
     });
   } catch (error) {
     console.error('Error fetching groups:', error);
     res.status(500).json({
-      success: false,
       error: 'Internal server error while fetching groups'
+    });
+  }
+});
+
+// GET /api/groups/detailed - Get all groups with detailed information
+router.get('/groups/detailed', (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: DEFAULT_GROUPS,
+      message: 'Detailed groups retrieved successfully'
+    });
+  } catch (error) {
+    console.error('Error fetching detailed groups:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error while fetching detailed groups'
     });
   }
 });
