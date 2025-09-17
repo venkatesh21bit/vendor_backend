@@ -20,6 +20,7 @@ const invoiceRoutes = require('./routes/invoice');
 const categoryRoutes = require('./routes/category');
 const connectionRoutes = require('./routes/connection');
 const dashboardRoutes = require('./routes/dashboard');
+const groupsRoutes = require('./routes/groups');
 
 // Import middleware
 const authMiddleware = require('./middleware/auth');
@@ -94,6 +95,7 @@ app.use('/api', invoiceRoutes);
 app.use('/api', categoryRoutes);
 app.use('/api', connectionRoutes);
 app.use('/api', dashboardRoutes);
+app.use('/api', groupsRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
