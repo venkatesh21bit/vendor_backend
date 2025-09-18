@@ -346,6 +346,11 @@ router.put('/products/:id', authMiddleware, async (req, res) => {
 // DELETE /api/products/:id - Delete product (soft delete)
 router.delete('/products/:id', authMiddleware, async (req, res) => {
   try {
+    console.log('=== DELETE PRODUCT DEBUG ===');
+    console.log('Product ID:', req.params.id);
+    console.log('User ID:', req.userId);
+    console.log('User Role:', req.user.role);
+    
     const product = await Product.findById(req.params.id);
 
     if (!product) {
@@ -354,6 +359,13 @@ router.delete('/products/:id', authMiddleware, async (req, res) => {
       });
     }
 
+    console.log('Product found:', {
+      productId: product._id,
+      productName: product.name,
+      companyId: product.company,
+      companyType: typeof product.company
+    });
+
     // Check company access
     await checkCompanyAccess(product.company, req.userId, req.user.role);
 
@@ -361,6 +373,7 @@ router.delete('/products/:id', authMiddleware, async (req, res) => {
     product.updated_by = req.userId;
     await product.save();
 
+    console.log('Product deleted successfully');
     res.json({
       message: 'Product deleted successfully'
     });
