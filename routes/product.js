@@ -234,6 +234,115 @@ router.get('/products/:id/invoice-details', authMiddleware, async (req, res) => 
   }
 });
 
+// GET /api/products/invoice-list/ - Get all products formatted for invoice creation
+router.get('/products/invoice-list', authMiddleware, async (req, res) => {
+  try {
+    const { company, search, category, page = 1, limit = 50 } = req.query;
+
+    console.log('Get products for invoice request:', { 
+      company, 
+      companyType: typeof company,
+      search,
+      userId: req.userId,
+      userRole: req.user.role
+    });
+
+    let targetCompanyId = company;
+
+    // Handle case where company parameter is explicitly "undefined" string
+    if (targetCompanyId === 'undefined' || targetCompanyId === undefined) {
+      if (req.user.role === 'manufacturer') {
+        const userCompany = await Company.findOne({ owner: req.userId });
+        console.log('Fallback to user company:', userCompany?._id);
+        targetCompanyId = userCompany?._id;
+      } else {
+        targetCompanyId = null;
+      }
+    }
+
+    if (!targetCompanyId) {
+      return res.status(400).json({
+        error: 'Company ID is required. Please ensure you have a company associated with your account.'
+      });
+    }
+
+    // Check company access
+    await checkCompanyAccess(targetCompanyId, req.userId, req.user.role);
+
+    // Build query
+    const query = {
+      company: targetCompanyId,
+      is_active: true,
+      available_quantity: { $gt: 0 } // Only show products in stock
+    };
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { hsn_code: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (category) {
+      query.category = category;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const products = await Product.find(query)
+      .populate('category', 'name')
+      .select('name description unit price available_quantity hsn_code cgst_rate sgst_rate igst_rate category')
+      .sort({ name: 1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    // Format products for invoice creation
+    const invoiceProducts = products.map(product => {
+      const tax_rate = (product.cgst_rate || 0) + (product.sgst_rate || 0) + (product.igst_rate || 0);
+      const tax_amount = (product.price * tax_rate) / 100;
+      
+      return {
+        product_id: product._id,
+        product_name: product.name,
+        description: product.description,
+        unit: product.unit,
+        unit_price: product.price,
+        available_quantity: product.available_quantity,
+        hsn_code: product.hsn_code,
+        cgst_rate: product.cgst_rate || 0,
+        sgst_rate: product.sgst_rate || 0,
+        igst_rate: product.igst_rate || 0,
+        total_tax_rate: tax_rate,
+        tax_amount_per_unit: tax_amount,
+        total_price_with_tax: product.price + tax_amount,
+        category_name: product.category?.name || 'Uncategorized'
+      };
+    });
+
+    const total = await Product.countDocuments(query);
+
+    console.log('Found products for invoice:', invoiceProducts.length);
+
+    res.json({
+      products: invoiceProducts,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get products for invoice error:', error);
+    if (error.message.includes('Access denied') || error.message.includes('Company not found')) {
+      return res.status(403).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Server error while fetching products for invoice' });
+  }
+});
+
 // POST /api/products/ - Create new product
 router.post('/products', authMiddleware, validate(schemas.createProduct), async (req, res) => {
   try {

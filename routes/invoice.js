@@ -328,6 +328,182 @@ router.post('/invoices', authMiddleware, validate(schemas.createInvoice), async 
   }
 });
 
+// POST /api/invoices/create/ - Create new invoice/bill directly with products
+router.post('/invoices/create', authMiddleware, async (req, res) => {
+  try {
+    const { 
+      company,
+      retailer_id,
+      items, // Array of { product_id, quantity, unit_price?, notes? }
+      due_date,
+      notes,
+      discount_amount = 0,
+      shipping_charges = 0
+    } = req.body;
+
+    console.log('Create invoice request:', { 
+      company, 
+      retailer_id, 
+      items: items?.length,
+      userId: req.userId,
+      userRole: req.user.role
+    });
+
+    let targetCompanyId = company;
+
+    // Handle case where company parameter is explicitly "undefined" string
+    if (targetCompanyId === 'undefined' || targetCompanyId === undefined) {
+      if (req.user.role === 'manufacturer') {
+        const userCompany = await Company.findOne({ owner: req.userId });
+        console.log('Fallback to user company:', userCompany?._id);
+        targetCompanyId = userCompany?._id;
+      } else {
+        targetCompanyId = null;
+      }
+    }
+
+    if (!targetCompanyId) {
+      return res.status(400).json({
+        error: 'Company ID is required. Please ensure you have a company associated with your account.'
+      });
+    }
+
+    if (!retailer_id) {
+      return res.status(400).json({
+        error: 'Retailer ID is required. Please select a customer.'
+      });
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        error: 'Items are required. Please add at least one product.'
+      });
+    }
+
+    console.log('Final targetCompanyId:', targetCompanyId);
+
+    // Check company access
+    await checkCompanyAccess(targetCompanyId, req.userId, req.user.role);
+
+    // Generate invoice number
+    const invoiceCount = await Invoice.countDocuments({ company: targetCompanyId });
+    const invoice_number = `INV-${targetCompanyId.toString().slice(-6).toUpperCase()}-${String(invoiceCount + 1).padStart(6, '0')}`;
+
+    // Process items and calculate totals
+    const Product = require('../models/Product');
+    let subtotal = 0;
+    let total_tax_amount = 0;
+    const processed_items = [];
+
+    for (const item of items) {
+      const product = await Product.findById(item.product_id);
+      if (!product) {
+        return res.status(404).json({
+          error: `Product not found: ${item.product_id}`
+        });
+      }
+
+      // Check if product belongs to the company
+      if (product.company.toString() !== targetCompanyId.toString()) {
+        return res.status(403).json({
+          error: `Product ${product.name} does not belong to your company`
+        });
+      }
+
+      // Check stock availability
+      if (product.available_quantity < item.quantity) {
+        return res.status(400).json({
+          error: `Insufficient stock for ${product.name}. Available: ${product.available_quantity}, Requested: ${item.quantity}`
+        });
+      }
+
+      const unit_price = item.unit_price || product.price;
+      const line_total = unit_price * item.quantity;
+      
+      // Calculate tax
+      const cgst_amount = (line_total * (product.cgst_rate || 0)) / 100;
+      const sgst_amount = (line_total * (product.sgst_rate || 0)) / 100;
+      const igst_amount = (line_total * (product.igst_rate || 0)) / 100;
+      const item_tax_amount = cgst_amount + sgst_amount + igst_amount;
+      const total_price = line_total + item_tax_amount;
+
+      processed_items.push({
+        product: product._id,
+        product_name: product.name,
+        quantity: item.quantity,
+        unit: product.unit,
+        unit_price: unit_price,
+        line_total: line_total,
+        cgst_rate: product.cgst_rate || 0,
+        sgst_rate: product.sgst_rate || 0,
+        igst_rate: product.igst_rate || 0,
+        cgst_amount: cgst_amount,
+        sgst_amount: sgst_amount,
+        igst_amount: igst_amount,
+        tax_amount: item_tax_amount,
+        total_price: total_price,
+        hsn_code: product.hsn_code,
+        notes: item.notes || ''
+      });
+
+      subtotal += line_total;
+      total_tax_amount += item_tax_amount;
+    }
+
+    const total_amount = subtotal + total_tax_amount - discount_amount + shipping_charges;
+
+    // Create invoice
+    const invoice = new Invoice({
+      invoice_number,
+      company: targetCompanyId,
+      retailer: retailer_id,
+      items: processed_items,
+      subtotal: subtotal,
+      tax_amount: total_tax_amount,
+      discount_amount: discount_amount,
+      shipping_charges: shipping_charges,
+      total_amount: total_amount,
+      due_date: due_date ? new Date(due_date) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      notes: notes || '',
+      status: 'draft',
+      payment_status: 'pending',
+      created_by: req.userId,
+      updated_by: req.userId
+    });
+
+    await invoice.save();
+
+    // Update product quantities
+    for (const item of processed_items) {
+      await Product.findByIdAndUpdate(
+        item.product,
+        { $inc: { available_quantity: -item.quantity } }
+      );
+    }
+
+    // Populate references
+    await invoice.populate([
+      { path: 'company', select: 'name address city state phone email gstin' },
+      { path: 'retailer', select: 'username email first_name last_name' },
+      { path: 'items.product', select: 'name hsn_code unit' }
+    ]);
+
+    console.log('Created invoice:', invoice.invoice_number);
+
+    res.status(201).json({
+      message: 'Invoice created successfully',
+      invoice: invoice
+    });
+
+  } catch (error) {
+    console.error('Create invoice directly error:', error);
+    if (error.message.includes('Access denied') || error.message.includes('Company not found')) {
+      return res.status(403).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Server error while creating invoice' });
+  }
+});
+
 // PUT /api/invoices/:id - Update invoice
 router.put('/invoices/:id', authMiddleware, async (req, res) => {
   try {
