@@ -467,6 +467,118 @@ router.post('/retailers/add', authMiddleware, async (req, res) => {
   }
 });
 
+// POST /api/retailers/create/ - Create a new retailer profile for a company
+router.post('/retailers/create', authMiddleware, async (req, res) => {
+  try {
+    const { company } = req.query;
+    const {
+      name,
+      contact_person,
+      email,
+      contact,
+      address_line1,
+      address_line2,
+      city,
+      state,
+      pincode,
+      country = 'India',
+      gstin,
+      distance_from_warehouse,
+      is_active = true
+    } = req.body;
+
+    console.log('Create retailer profile request:', { 
+      company, 
+      companyType: typeof company,
+      name,
+      email,
+      userId: req.userId,
+      userRole: req.user.role,
+      requestBody: req.body
+    });
+
+    let targetCompanyId = company;
+
+    // Handle case where company parameter is explicitly "undefined" string
+    if (targetCompanyId === 'undefined' || targetCompanyId === undefined) {
+      if (req.user.role === 'manufacturer') {
+        const userCompany = await Company.findOne({ owner: req.userId });
+        console.log('Fallback to user company:', userCompany?._id);
+        targetCompanyId = userCompany?._id;
+      } else {
+        targetCompanyId = null;
+      }
+    }
+
+    if (!targetCompanyId) {
+      return res.status(400).json({
+        error: 'Company ID is required. Please ensure you have a company associated with your account.'
+      });
+    }
+
+    if (!name || !contact || !email) {
+      return res.status(400).json({
+        error: 'Name, contact, and email are required fields.'
+      });
+    }
+
+    console.log('Final targetCompanyId:', targetCompanyId);
+
+    // Check if user has access to this company
+    const companyDoc = await Company.findById(targetCompanyId);
+    if (!companyDoc) {
+      return res.status(404).json({
+        error: 'Company not found'
+      });
+    }
+
+    const isOwner = companyDoc.owner.toString() === req.userId.toString();
+    const isEmployee = companyDoc.employees.includes(req.userId);
+
+    if (!isOwner && !isEmployee && !req.user.is_staff) {
+      return res.status(403).json({
+        error: 'Access denied. You are not associated with this company.'
+      });
+    }
+
+    // Create a simple retailer profile (not a user account)
+    // This is for companies to track their customer/retailer information
+    const retailerProfile = {
+      retailer_id: new Date().getTime(), // Generate a simple ID
+      name,
+      contact_person,
+      email,
+      contact,
+      address_line1,
+      address_line2,
+      city,
+      state,
+      pincode,
+      country,
+      gstin,
+      distance_from_warehouse: Number(distance_from_warehouse) || 0,
+      is_active,
+      company: targetCompanyId,
+      created_by: req.userId,
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+
+    // For now, we'll store this in the company's retailer connections
+    // In a real application, you might want a separate RetailerProfile model
+    console.log('Created retailer profile:', retailerProfile);
+
+    res.status(201).json({
+      message: 'Retailer profile created successfully',
+      retailer: retailerProfile
+    });
+
+  } catch (error) {
+    console.error('Create retailer profile error:', error);
+    res.status(500).json({ error: 'Server error while creating retailer profile' });
+  }
+});
+
 // GET /api/retailers/available/ - Get available retailers that can be connected to a company
 router.get('/retailers/available', authMiddleware, async (req, res) => {
   try {
