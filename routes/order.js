@@ -10,6 +10,18 @@ const router = express.Router();
 
 // Helper function to check company access
 const checkCompanyAccess = async (companyId, userId, userRole) => {
+  console.log('checkCompanyAccess called with:', { companyId, userId, userRole });
+  
+  // Validate companyId is provided and not undefined
+  if (!companyId || companyId === 'undefined' || companyId === undefined) {
+    throw new Error('Company ID is required and cannot be undefined');
+  }
+
+  // Validate ObjectId format
+  if (!companyId.match(/^[0-9a-fA-F]{24}$/)) {
+    throw new Error('Invalid company ID format');
+  }
+
   const company = await Company.findById(companyId);
   if (!company) {
     throw new Error('Company not found');
@@ -521,16 +533,32 @@ router.get('/shipments', authMiddleware, async (req, res) => {
       sort_order = 'desc'
     } = req.query;
 
+    console.log('Shipments request:', { 
+      company, 
+      companyType: typeof company,
+      userId: req.userId,
+      userRole: req.user.role,
+      queryParams: req.query 
+    });
+
     // Build query for shipments (shipped and delivered orders)
     const query = {
       status: { $in: ['shipped', 'delivered'] }
     };
 
-    if (company) {
-      await checkCompanyAccess(company, req.userId, req.user.role);
-      query.company = company;
+    let targetCompanyId = company;
+
+    // Handle case where company parameter is explicitly "undefined" string
+    if (targetCompanyId === 'undefined' || targetCompanyId === undefined) {
+      targetCompanyId = null;
+    }
+
+    if (targetCompanyId) {
+      await checkCompanyAccess(targetCompanyId, req.userId, req.user.role);
+      query.company = targetCompanyId;
     } else if (req.user.role === 'manufacturer') {
       const userCompany = await Company.findOne({ owner: req.userId });
+      console.log('Found user company for manufacturer:', userCompany?._id);
       if (userCompany) {
         query.company = userCompany._id;
       }
@@ -544,6 +572,8 @@ router.get('/shipments', authMiddleware, async (req, res) => {
     if (employee) {
       query.assigned_employee = employee;
     }
+
+    console.log('Final shipments query:', query);
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const sortObj = {};

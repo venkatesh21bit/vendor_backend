@@ -26,6 +26,9 @@ const groupsRoutes = require('./routes/groups');
 const authMiddleware = require('./middleware/auth');
 const errorHandler = require('./middleware/errorHandler');
 
+// Trust proxy setting for production deployment (Render, Heroku, etc.)
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet());
 

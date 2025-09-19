@@ -10,6 +10,18 @@ const router = express.Router();
 
 // Helper function to check company access
 const checkCompanyAccess = async (companyId, userId, userRole) => {
+  console.log('checkCompanyAccess called with:', { companyId, userId, userRole });
+  
+  // Validate companyId is provided and not undefined
+  if (!companyId || companyId === 'undefined' || companyId === undefined) {
+    throw new Error('Company ID is required and cannot be undefined');
+  }
+
+  // Validate ObjectId format
+  if (!companyId.match(/^[0-9a-fA-F]{24}$/)) {
+    throw new Error('Invalid company ID format');
+  }
+
   const company = await Company.findById(companyId);
   if (!company) {
     throw new Error('Company not found');
@@ -411,16 +423,40 @@ router.get('/dashboard/order-status-distribution', authMiddleware, async (req, r
 router.get('/count', authMiddleware, async (req, res) => {
   try {
     const { company } = req.query;
+    console.log('Dashboard count request:', { 
+      company, 
+      companyType: typeof company,
+      userId: req.userId,
+      userRole: req.user.role,
+      queryParams: req.query 
+    });
+    
     let targetCompanyId = company;
 
     // For manufacturers, get their company if not specified
     if (!targetCompanyId && req.user.role === 'manufacturer') {
       const userCompany = await Company.findOne({ owner: req.userId });
+      console.log('Found user company:', userCompany?._id);
       targetCompanyId = userCompany?._id;
     }
 
+    // Handle case where company parameter is explicitly "undefined" string
+    if (targetCompanyId === 'undefined' || targetCompanyId === undefined) {
+      if (req.user.role === 'manufacturer') {
+        const userCompany = await Company.findOne({ owner: req.userId });
+        console.log('Fallback to user company:', userCompany?._id);
+        targetCompanyId = userCompany?._id;
+      } else {
+        targetCompanyId = null;
+      }
+    }
+
+    console.log('Final targetCompanyId:', targetCompanyId);
+
     if ((req.user.role === 'manufacturer' || req.user.role === 'employee') && !targetCompanyId) {
-      return res.status(400).json({ error: 'Company ID is required' });
+      return res.status(400).json({ 
+        error: 'Company ID is required. Please ensure you have a company associated with your account.' 
+      });
     }
 
     if (req.user.role === 'manufacturer' || req.user.role === 'employee') {
