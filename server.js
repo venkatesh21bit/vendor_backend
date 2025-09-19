@@ -32,7 +32,10 @@ app.use(helmet());
 // CORS configuration
 const corsOrigins = process.env.CORS_ORIGIN 
   ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
-  : ['http://localhost:3000'];
+  : [
+      'http://localhost:3000',
+      'https://vendor-frontend-phi.vercel.app'
+    ];
 
 app.use(cors({
   origin: corsOrigins,

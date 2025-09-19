@@ -387,4 +387,211 @@ router.delete('/orders/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/employee_shipments - Get shipments assigned to specific employee
+router.get('/employee_shipments', authMiddleware, async (req, res) => {
+  try {
+    const { employeeId, page = 1, limit = 20 } = req.query;
+
+    if (!employeeId) {
+      return res.status(400).json({ error: 'Employee ID is required' });
+    }
+
+    // Check if user has access to view this employee's shipments
+    if (req.user.role === 'employee' && req.userId.toString() !== employeeId) {
+      return res.status(403).json({ error: 'Access denied. You can only view your own shipments.' });
+    }
+
+    // Build query for employee shipments
+    const query = {
+      assigned_employee: employeeId,
+      status: { $in: ['shipped', 'delivered', 'processing'] } // Include processing for pending shipments
+    };
+
+    // If the requester is a manufacturer, ensure they only see their company's orders
+    if (req.user.role === 'manufacturer') {
+      const userCompany = await Company.findOne({ owner: req.userId });
+      if (userCompany) {
+        query.company = userCompany._id;
+      }
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const shipments = await Order.find(query)
+      .populate('company', 'name address city state')
+      .populate('retailer', 'username email first_name last_name')
+      .populate('items.product', 'name unit')
+      .populate('assigned_employee', 'username first_name last_name')
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    // Transform orders to shipment format expected by frontend
+    const transformedShipments = shipments.map(order => ({
+      shipment_id: order._id,
+      shipment_date: order.updatedAt,
+      status: order.status,
+      order: order._id,
+      order_number: order.order_number,
+      employee: order.assigned_employee?._id,
+      retailer: order.retailer._id,
+      retailer_name: `${order.retailer.first_name} ${order.retailer.last_name}`,
+      tracking_number: order.tracking_number,
+      delivery_date: order.delivery_date,
+      total_amount: order.total_amount,
+      items: order.items.map(item => ({
+        product_name: item.product_name,
+        quantity: item.quantity,
+        unit_price: item.unit_price
+      }))
+    }));
+
+    res.json(transformedShipments);
+  } catch (error) {
+    console.error('Get employee shipments error:', error);
+    res.status(500).json({ error: 'Server error while fetching employee shipments' });
+  }
+});
+
+// PUT /api/update_shipment_status/ - Update shipment status
+router.put('/update_shipment_status', authMiddleware, async (req, res) => {
+  try {
+    const { shipment_id, status } = req.body;
+
+    if (!shipment_id || !status) {
+      return res.status(400).json({ error: 'Shipment ID and status are required' });
+    }
+
+    const validStatuses = ['processing', 'shipped', 'delivered', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    const order = await Order.findById(shipment_id)
+      .populate('company');
+
+    if (!order) {
+      return res.status(404).json({ error: 'Shipment not found' });
+    }
+
+    // Check access rights
+    const isCompanyOwner = order.company.owner?.toString() === req.userId.toString();
+    const isCompanyEmployee = order.company.employees?.includes(req.userId);
+    const isAssignedEmployee = order.assigned_employee?.toString() === req.userId.toString();
+
+    if (!isCompanyOwner && !isCompanyEmployee && !isAssignedEmployee && !req.user.is_staff) {
+      return res.status(403).json({
+        error: 'Access denied. You are not authorized to update this shipment.'
+      });
+    }
+
+    order.status = status;
+    order.updated_by = req.userId;
+
+    // Set delivery date if status is delivered
+    if (status === 'delivered' && !order.delivery_date) {
+      order.delivery_date = new Date();
+    }
+
+    await order.save();
+
+    res.json({
+      message: 'Shipment status updated successfully',
+      shipment: {
+        shipment_id: order._id,
+        status: order.status,
+        delivery_date: order.delivery_date
+      }
+    });
+  } catch (error) {
+    console.error('Update shipment status error:', error);
+    res.status(500).json({ error: 'Server error while updating shipment status' });
+  }
+});
+
+// GET /api/shipments/ - Get shipments (orders with shipping status)
+router.get('/shipments', authMiddleware, async (req, res) => {
+  try {
+    const { 
+      company, 
+      employee,
+      page = 1, 
+      limit = 20,
+      sort_by = 'createdAt',
+      sort_order = 'desc'
+    } = req.query;
+
+    // Build query for shipments (shipped and delivered orders)
+    const query = {
+      status: { $in: ['shipped', 'delivered'] }
+    };
+
+    if (company) {
+      await checkCompanyAccess(company, req.userId, req.user.role);
+      query.company = company;
+    } else if (req.user.role === 'manufacturer') {
+      const userCompany = await Company.findOne({ owner: req.userId });
+      if (userCompany) {
+        query.company = userCompany._id;
+      }
+    } else if (req.user.role === 'employee') {
+      const companies = await Company.find({ employees: req.userId });
+      query.company = { $in: companies.map(c => c._id) };
+    } else if (req.user.role === 'retailer') {
+      query.retailer = req.userId;
+    }
+
+    if (employee) {
+      query.assigned_employee = employee;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const sortObj = {};
+    sortObj[sort_by] = sort_order === 'desc' ? -1 : 1;
+
+    const shipments = await Order.find(query)
+      .populate('company', 'name address city state')
+      .populate('retailer', 'username email first_name last_name')
+      .populate('items.product', 'name unit')
+      .populate('assigned_employee', 'username first_name last_name')
+      .sort(sortObj)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Order.countDocuments(query);
+
+    // Transform orders to shipment format expected by frontend
+    const transformedShipments = shipments.map(order => ({
+      shipment_id: order._id,
+      shipment_date: order.updatedAt,
+      status: order.status,
+      order: order._id,
+      order_number: order.order_number,
+      employee: order.assigned_employee?._id,
+      employee_name: order.assigned_employee ? 
+        `${order.assigned_employee.first_name} ${order.assigned_employee.last_name}` : null,
+      retailer: order.retailer._id,
+      retailer_name: `${order.retailer.first_name} ${order.retailer.last_name}`,
+      tracking_number: order.tracking_number,
+      delivery_date: order.delivery_date,
+      total_amount: order.total_amount
+    }));
+
+    res.json({
+      count: total,
+      next: parseInt(page) * parseInt(limit) < total ? 
+        `${req.protocol}://${req.get('host')}${req.originalUrl.split('?')[0]}?page=${parseInt(page) + 1}&limit=${limit}` : null,
+      previous: parseInt(page) > 1 ? 
+        `${req.protocol}://${req.get('host')}${req.originalUrl.split('?')[0]}?page=${parseInt(page) - 1}&limit=${limit}` : null,
+      results: transformedShipments
+    });
+  } catch (error) {
+    console.error('Get shipments error:', error);
+    if (error.message.includes('Access denied') || error.message.includes('Company not found')) {
+      return res.status(403).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Server error while fetching shipments' });
+  }
+});
+
 module.exports = router;

@@ -457,4 +457,81 @@ router.get('/categories/:id/products', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/category-stock/ - Get category statistics with product counts
+router.get('/category-stock', authMiddleware, async (req, res) => {
+  try {
+    console.log('GET /api/category-stock - User:', { userId: req.userId, role: req.user.role });
+
+    // Find user's companies
+    let companyFilter = {};
+    if (req.user.role === 'manufacturer') {
+      const userCompany = await Company.findOne({ owner: req.userId });
+      if (userCompany) {
+        companyFilter = { company: userCompany._id };
+      } else {
+        return res.json({ data: [] });
+      }
+    } else if (req.user.role === 'employee') {
+      const companies = await Company.find({ employees: req.userId });
+      if (companies.length > 0) {
+        companyFilter = { company: { $in: companies.map(c => c._id) } };
+      } else {
+        return res.json({ data: [] });
+      }
+    }
+
+    // Get categories with product counts using aggregation
+    const Product = require('../models/Product');
+    
+    const categoryStats = await ProductCategory.aggregate([
+      {
+        $match: {
+          is_active: true,
+          ...companyFilter
+        }
+      },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: 'category',
+          as: 'products'
+        }
+      },
+      {
+        $addFields: {
+          product_count: {
+            $size: {
+              $filter: {
+                input: '$products',
+                cond: { $eq: ['$$this.is_active', true] }
+              }
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          category_id: '$_id',
+          name: 1,
+          description: 1,
+          product_count: 1
+        }
+      },
+      {
+        $sort: { name: 1 }
+      }
+    ]);
+
+    console.log('Found category stats:', categoryStats.length);
+
+    res.json({
+      data: categoryStats
+    });
+  } catch (error) {
+    console.error('Get category stock error:', error);
+    res.status(500).json({ error: 'Server error while fetching category statistics' });
+  }
+});
+
 module.exports = router;

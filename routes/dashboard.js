@@ -407,4 +407,65 @@ router.get('/dashboard/order-status-distribution', authMiddleware, async (req, r
   }
 });
 
+// GET /api/count - Get simplified dashboard counts for manufacturer dashboard
+router.get('/count', authMiddleware, async (req, res) => {
+  try {
+    const { company } = req.query;
+    let targetCompanyId = company;
+
+    // For manufacturers, get their company if not specified
+    if (!targetCompanyId && req.user.role === 'manufacturer') {
+      const userCompany = await Company.findOne({ owner: req.userId });
+      targetCompanyId = userCompany?._id;
+    }
+
+    if ((req.user.role === 'manufacturer' || req.user.role === 'employee') && !targetCompanyId) {
+      return res.status(400).json({ error: 'Company ID is required' });
+    }
+
+    if (req.user.role === 'manufacturer' || req.user.role === 'employee') {
+      await checkCompanyAccess(targetCompanyId, req.userId, req.user.role);
+
+      // Company-specific counts
+      const [
+        orders_placed,
+        pending_orders,
+        employees_available,
+        retailers_available
+      ] = await Promise.all([
+        Order.countDocuments({ company: targetCompanyId }),
+        Order.countDocuments({ company: targetCompanyId, status: { $in: ['pending', 'confirmed'] } }),
+        User.countDocuments({ 
+          role: 'employee',
+          $or: [
+            { _id: { $in: (await Company.findById(targetCompanyId))?.employees || [] } },
+            { company: targetCompanyId }
+          ]
+        }),
+        CompanyRetailerConnection.countDocuments({ company: targetCompanyId, status: 'approved' })
+      ]);
+
+      const counts = {
+        orders_placed,
+        pending_orders,
+        employees_available,
+        retailers_available
+      };
+
+      console.log('Dashboard counts for company', targetCompanyId, ':', counts);
+      res.json(counts);
+
+    } else {
+      return res.status(403).json({ error: 'Access denied. This endpoint is for manufacturers and employees only.' });
+    }
+
+  } catch (error) {
+    console.error('Get dashboard counts error:', error);
+    if (error.message.includes('Access denied') || error.message.includes('Company not found')) {
+      return res.status(403).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Server error while fetching dashboard counts' });
+  }
+});
+
 module.exports = router;

@@ -26,20 +26,35 @@ const isValidObjectId = (id) => {
 
 // Helper function to check company access
 const checkCompanyAccess = async (companyId, userId, userRole) => {
+  console.log('=== checkCompanyAccess DEBUG ===');
   console.log('checkCompanyAccess called with:', { companyId, userId, userRole, type: typeof companyId });
   
   const company = await Company.findById(companyId);
   if (!company) {
+    console.log('Company not found for ID:', companyId);
     throw new Error('Company not found');
   }
+
+  console.log('Company found:', {
+    companyId: company._id,
+    owner: company.owner,
+    ownerType: typeof company.owner,
+    employees: company.employees,
+    userId: userId,
+    userIdType: typeof userId
+  });
 
   const isOwner = company.owner.toString() === userId.toString();
   const isEmployee = company.employees.includes(userId);
 
+  console.log('Access check results:', { isOwner, isEmployee, userRole });
+
   if (!isOwner && !isEmployee && userRole !== 'staff') {
+    console.log('ACCESS DENIED - User is not owner, employee, or staff');
     throw new Error('Access denied. You are not associated with this company.');
   }
 
+  console.log('ACCESS GRANTED');
   return company;
 };
 
