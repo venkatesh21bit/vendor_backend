@@ -323,22 +323,47 @@ router.post('/retailers/add', authMiddleware, async (req, res) => {
     const { company } = req.query;
     const { retailer_id, credit_limit = 50000, payment_terms = '30 days' } = req.body;
 
-    console.log('Add retailer request:', { company, retailer_id, credit_limit, payment_terms });
+    console.log('Add retailer request:', { 
+      company, 
+      companyType: typeof company,
+      retailer_id, 
+      credit_limit, 
+      payment_terms,
+      userId: req.userId,
+      userRole: req.user.role,
+      queryParams: req.query,
+      requestBody: req.body
+    });
 
-    if (!company) {
+    let targetCompanyId = company;
+
+    // Handle case where company parameter is explicitly "undefined" string
+    if (targetCompanyId === 'undefined' || targetCompanyId === undefined) {
+      if (req.user.role === 'manufacturer') {
+        const userCompany = await Company.findOne({ owner: req.userId });
+        console.log('Fallback to user company:', userCompany?._id);
+        targetCompanyId = userCompany?._id;
+      } else {
+        targetCompanyId = null;
+      }
+    }
+
+    if (!targetCompanyId) {
       return res.status(400).json({
-        error: 'Company ID is required'
+        error: 'Company ID is required. Please ensure you have a company associated with your account.'
       });
     }
 
     if (!retailer_id) {
       return res.status(400).json({
-        error: 'Retailer ID is required'
+        error: 'Retailer ID is required. Please select a retailer to add.'
       });
     }
 
+    console.log('Final targetCompanyId:', targetCompanyId);
+
     // Check if user has access to this company
-    const companyDoc = await Company.findById(company);
+    const companyDoc = await Company.findById(targetCompanyId);
     if (!companyDoc) {
       return res.status(404).json({
         error: 'Company not found'
@@ -370,7 +395,7 @@ router.post('/retailers/add', authMiddleware, async (req, res) => {
 
     // Check if connection already exists
     const existingConnection = await CompanyRetailerConnection.findOne({
-      company: company,
+      company: targetCompanyId,
       retailer: retailer_id
     });
 
@@ -396,7 +421,7 @@ router.post('/retailers/add', authMiddleware, async (req, res) => {
           connection: {
             id: existingConnection._id,
             retailer: retailer_id,
-            company: company,
+            company: targetCompanyId,
             status: existingConnection.status,
             credit_limit: existingConnection.credit_limit,
             payment_terms: existingConnection.payment_terms,
@@ -408,7 +433,7 @@ router.post('/retailers/add', authMiddleware, async (req, res) => {
 
     // Create new connection
     const connection = new CompanyRetailerConnection({
-      company: company,
+      company: targetCompanyId,
       retailer: retailer_id,
       credit_limit: credit_limit,
       payment_terms: payment_terms,
@@ -418,12 +443,14 @@ router.post('/retailers/add', authMiddleware, async (req, res) => {
 
     await connection.save();
 
+    console.log('Created connection:', connection._id);
+
     res.status(201).json({
       message: 'Retailer connected successfully',
       connection: {
         id: connection._id,
         retailer: retailer_id,
-        company: company,
+        company: targetCompanyId,
         status: connection.status,
         credit_limit: connection.credit_limit,
         payment_terms: connection.payment_terms,
@@ -437,6 +464,111 @@ router.post('/retailers/add', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Invalid ID format' });
     }
     res.status(500).json({ error: 'Server error while adding retailer' });
+  }
+});
+
+// GET /api/retailers/available/ - Get available retailers that can be connected to a company
+router.get('/retailers/available', authMiddleware, async (req, res) => {
+  try {
+    const { company, search = '' } = req.query;
+
+    console.log('Get available retailers request:', { 
+      company, 
+      companyType: typeof company,
+      search,
+      userId: req.userId,
+      userRole: req.user.role
+    });
+
+    let targetCompanyId = company;
+
+    // Handle case where company parameter is explicitly "undefined" string
+    if (targetCompanyId === 'undefined' || targetCompanyId === undefined) {
+      if (req.user.role === 'manufacturer') {
+        const userCompany = await Company.findOne({ owner: req.userId });
+        console.log('Fallback to user company:', userCompany?._id);
+        targetCompanyId = userCompany?._id;
+      } else {
+        targetCompanyId = null;
+      }
+    }
+
+    if (!targetCompanyId) {
+      return res.status(400).json({
+        error: 'Company ID is required. Please ensure you have a company associated with your account.'
+      });
+    }
+
+    console.log('Final targetCompanyId:', targetCompanyId);
+
+    // Check if user has access to this company
+    const companyDoc = await Company.findById(targetCompanyId);
+    if (!companyDoc) {
+      return res.status(404).json({
+        error: 'Company not found'
+      });
+    }
+
+    const isOwner = companyDoc.owner.toString() === req.userId.toString();
+    const isEmployee = companyDoc.employees.includes(req.userId);
+
+    if (!isOwner && !isEmployee && !req.user.is_staff) {
+      return res.status(403).json({
+        error: 'Access denied. You are not associated with this company.'
+      });
+    }
+
+    // Get already connected retailer IDs
+    const connectedRetailers = await CompanyRetailerConnection.find({
+      company: targetCompanyId,
+      status: { $in: ['approved', 'pending'] }
+    }).distinct('retailer');
+
+    // Build query for available retailers
+    const User = require('../models/User');
+    const query = {
+      role: 'retailer',
+      is_active: true,
+      _id: { $nin: connectedRetailers }
+    };
+
+    // Add search functionality
+    if (search) {
+      query.$or = [
+        { username: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { first_name: { $regex: search, $options: 'i' } },
+        { last_name: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const availableRetailers = await User.find(query)
+      .select('username email first_name last_name')
+      .limit(50);
+
+    // Get retailer profiles
+    const retailersWithProfiles = await Promise.all(
+      availableRetailers.map(async (retailer) => {
+        const profile = await RetailerProfile.findOne({ user: retailer._id });
+        return {
+          id: retailer._id,
+          username: retailer.username,
+          email: retailer.email,
+          first_name: retailer.first_name,
+          last_name: retailer.last_name,
+          business_name: profile?.business_name || '',
+          contact_person: profile?.contact_person || '',
+          phone: profile?.phone || ''
+        };
+      })
+    );
+
+    console.log('Found available retailers:', retailersWithProfiles.length);
+    res.json(retailersWithProfiles);
+
+  } catch (error) {
+    console.error('Get available retailers error:', error);
+    res.status(500).json({ error: 'Server error while fetching available retailers' });
   }
 });
 
