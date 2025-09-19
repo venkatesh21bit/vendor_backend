@@ -293,4 +293,127 @@ router.get('/retailers', authMiddleware, async (req, res) => {
   }
 });
 
+// POST /api/retailers/add/ - Add/Connect a retailer to a company
+router.post('/retailers/add', authMiddleware, async (req, res) => {
+  try {
+    const { company } = req.query;
+    const { retailer_id, credit_limit = 50000, payment_terms = '30 days' } = req.body;
+
+    console.log('Add retailer request:', { company, retailer_id, credit_limit, payment_terms });
+
+    if (!company) {
+      return res.status(400).json({
+        error: 'Company ID is required'
+      });
+    }
+
+    if (!retailer_id) {
+      return res.status(400).json({
+        error: 'Retailer ID is required'
+      });
+    }
+
+    // Check if user has access to this company
+    const companyDoc = await Company.findById(company);
+    if (!companyDoc) {
+      return res.status(404).json({
+        error: 'Company not found'
+      });
+    }
+
+    const isOwner = companyDoc.owner.toString() === req.userId.toString();
+    const isEmployee = companyDoc.employees.includes(req.userId);
+
+    if (!isOwner && !isEmployee && !req.user.is_staff) {
+      return res.status(403).json({
+        error: 'Access denied. You are not associated with this company.'
+      });
+    }
+
+    // Check if retailer exists
+    const User = require('../models/User');
+    const retailer = await User.findOne({ 
+      _id: retailer_id, 
+      role: 'retailer',
+      is_active: true 
+    });
+
+    if (!retailer) {
+      return res.status(404).json({
+        error: 'Retailer not found or inactive'
+      });
+    }
+
+    // Check if connection already exists
+    const existingConnection = await CompanyRetailerConnection.findOne({
+      company: company,
+      retailer: retailer_id
+    });
+
+    if (existingConnection) {
+      if (existingConnection.status === 'approved') {
+        return res.status(400).json({
+          error: 'Retailer is already connected to this company'
+        });
+      } else if (existingConnection.status === 'pending') {
+        return res.status(400).json({
+          error: 'Connection request is already pending for this retailer'
+        });
+      } else {
+        // Reactivate rejected connection
+        existingConnection.status = 'approved';
+        existingConnection.credit_limit = credit_limit;
+        existingConnection.payment_terms = payment_terms;
+        existingConnection.connected_at = new Date();
+        await existingConnection.save();
+
+        return res.json({
+          message: 'Retailer connection reactivated successfully',
+          connection: {
+            id: existingConnection._id,
+            retailer: retailer_id,
+            company: company,
+            status: existingConnection.status,
+            credit_limit: existingConnection.credit_limit,
+            payment_terms: existingConnection.payment_terms,
+            connected_at: existingConnection.connected_at
+          }
+        });
+      }
+    }
+
+    // Create new connection
+    const connection = new CompanyRetailerConnection({
+      company: company,
+      retailer: retailer_id,
+      credit_limit: credit_limit,
+      payment_terms: payment_terms,
+      status: 'approved', // Auto-approve for manufacturer-initiated connections
+      connected_at: new Date()
+    });
+
+    await connection.save();
+
+    res.status(201).json({
+      message: 'Retailer connected successfully',
+      connection: {
+        id: connection._id,
+        retailer: retailer_id,
+        company: company,
+        status: connection.status,
+        credit_limit: connection.credit_limit,
+        payment_terms: connection.payment_terms,
+        connected_at: connection.connected_at
+      }
+    });
+
+  } catch (error) {
+    console.error('Add retailer error:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({ error: 'Invalid ID format' });
+    }
+    res.status(500).json({ error: 'Server error while adding retailer' });
+  }
+});
+
 module.exports = router;
