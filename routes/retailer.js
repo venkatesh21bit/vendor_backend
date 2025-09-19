@@ -225,14 +225,37 @@ router.get('/retailers', authMiddleware, async (req, res) => {
   try {
     const { company } = req.query;
 
-    if (!company) {
+    console.log('Get retailers request:', { 
+      company, 
+      companyType: typeof company,
+      userId: req.userId,
+      userRole: req.user.role,
+      queryParams: req.query 
+    });
+
+    let targetCompanyId = company;
+
+    // Handle case where company parameter is explicitly "undefined" string
+    if (targetCompanyId === 'undefined' || targetCompanyId === undefined) {
+      if (req.user.role === 'manufacturer') {
+        const userCompany = await Company.findOne({ owner: req.userId });
+        console.log('Fallback to user company:', userCompany?._id);
+        targetCompanyId = userCompany?._id;
+      } else {
+        targetCompanyId = null;
+      }
+    }
+
+    if (!targetCompanyId) {
       return res.status(400).json({
-        error: 'Company ID is required'
+        error: 'Company ID is required. Please ensure you have a company associated with your account.'
       });
     }
 
+    console.log('Final targetCompanyId:', targetCompanyId);
+
     // Check if user has access to this company
-    const companyDoc = await Company.findById(company);
+    const companyDoc = await Company.findById(targetCompanyId);
     if (!companyDoc) {
       return res.status(404).json({
         error: 'Company not found'
@@ -250,7 +273,7 @@ router.get('/retailers', authMiddleware, async (req, res) => {
 
     // Get connected retailers
     const connections = await CompanyRetailerConnection.find({
-      company: company,
+      company: targetCompanyId,
       status: 'approved'
     })
       .populate('retailer', 'username email first_name last_name')
@@ -286,6 +309,7 @@ router.get('/retailers', authMiddleware, async (req, res) => {
       })
     );
 
+    console.log('Found retailers:', retailers.length);
     res.json(retailers);
   } catch (error) {
     console.error('Get retailers error:', error);

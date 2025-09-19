@@ -188,6 +188,52 @@ router.get('/products/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/products/:id/invoice-details - Get product details for invoice creation
+router.get('/products/:id/invoice-details', authMiddleware, async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id)
+      .populate('category', 'name')
+      .populate('company', 'name');
+
+    if (!product) {
+      return res.status(404).json({
+        error: 'Product not found'
+      });
+    }
+
+    // Check company access
+    await checkCompanyAccess(product.company._id, req.userId, req.user.role);
+
+    // Return product details formatted for invoice creation
+    const invoiceDetails = {
+      product_id: product._id,
+      product_name: product.name,
+      description: product.description,
+      unit: product.unit,
+      unit_price: product.price,
+      available_quantity: product.available_quantity,
+      hsn_code: product.hsn_code,
+      cgst_rate: product.cgst_rate || 0,
+      sgst_rate: product.sgst_rate || 0,
+      igst_rate: product.igst_rate || 0,
+      category_name: product.category?.name || '',
+      company_name: product.company?.name || '',
+      // Calculate suggested tax amount (for 1 unit)
+      tax_amount: ((product.cgst_rate || 0) + (product.sgst_rate || 0) + (product.igst_rate || 0)) * product.price / 100,
+      // Calculate total price including tax (for 1 unit)
+      total_price_with_tax: product.price + (((product.cgst_rate || 0) + (product.sgst_rate || 0) + (product.igst_rate || 0)) * product.price / 100)
+    };
+
+    res.json(invoiceDetails);
+  } catch (error) {
+    console.error('Get product invoice details error:', error);
+    if (error.message.includes('Access denied') || error.message.includes('Company not found')) {
+      return res.status(403).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Server error while fetching product invoice details' });
+  }
+});
+
 // POST /api/products/ - Create new product
 router.post('/products', authMiddleware, validate(schemas.createProduct), async (req, res) => {
   try {

@@ -8,6 +8,18 @@ const router = express.Router();
 
 // Helper function to check company access
 const checkCompanyAccess = async (companyId, userId, userRole) => {
+  console.log('checkCompanyAccess called with:', { companyId, userId, userRole });
+  
+  // Validate companyId is provided and not undefined
+  if (!companyId || companyId === 'undefined' || companyId === undefined) {
+    throw new Error('Company ID is required and cannot be undefined');
+  }
+
+  // Validate ObjectId format
+  if (!companyId.match(/^[0-9a-fA-F]{24}$/)) {
+    throw new Error('Invalid company ID format');
+  }
+
   const company = await Company.findById(companyId);
   if (!company) {
     throw new Error('Company not found');
@@ -22,6 +34,98 @@ const checkCompanyAccess = async (companyId, userId, userRole) => {
 
   return company;
 };
+
+// GET /api/invoices/count/ - Get invoice counts for dashboard
+router.get('/invoices/count', authMiddleware, async (req, res) => {
+  try {
+    const { company } = req.query;
+    console.log('Invoice count request:', { 
+      company, 
+      companyType: typeof company,
+      userId: req.userId,
+      userRole: req.user.role,
+      queryParams: req.query 
+    });
+    
+    let targetCompanyId = company;
+
+    // For manufacturers, get their company if not specified
+    if (!targetCompanyId && req.user.role === 'manufacturer') {
+      const userCompany = await Company.findOne({ owner: req.userId });
+      console.log('Found user company:', userCompany?._id);
+      targetCompanyId = userCompany?._id;
+    }
+
+    // Handle case where company parameter is explicitly "undefined" string
+    if (targetCompanyId === 'undefined' || targetCompanyId === undefined) {
+      if (req.user.role === 'manufacturer') {
+        const userCompany = await Company.findOne({ owner: req.userId });
+        console.log('Fallback to user company:', userCompany?._id);
+        targetCompanyId = userCompany?._id;
+      } else {
+        targetCompanyId = null;
+      }
+    }
+
+    console.log('Final targetCompanyId:', targetCompanyId);
+
+    if ((req.user.role === 'manufacturer' || req.user.role === 'employee') && !targetCompanyId) {
+      return res.status(400).json({ 
+        error: 'Company ID is required. Please ensure you have a company associated with your account.' 
+      });
+    }
+
+    // Build query based on user role
+    const query = {};
+
+    if (req.user.role === 'manufacturer' || req.user.role === 'employee') {
+      await checkCompanyAccess(targetCompanyId, req.userId, req.user.role);
+      query.company = targetCompanyId;
+    } else if (req.user.role === 'retailer') {
+      query.retailer = req.userId;
+    }
+
+    // Get invoice counts by status and payment status
+    const [
+      totalInvoices,
+      draftInvoices,
+      sentInvoices,
+      paidInvoices,
+      pendingPayment,
+      overdueInvoices
+    ] = await Promise.all([
+      Invoice.countDocuments(query),
+      Invoice.countDocuments({ ...query, status: 'draft' }),
+      Invoice.countDocuments({ ...query, status: 'sent' }),
+      Invoice.countDocuments({ ...query, payment_status: 'paid' }),
+      Invoice.countDocuments({ ...query, payment_status: 'pending' }),
+      Invoice.countDocuments({ 
+        ...query, 
+        payment_status: { $in: ['pending', 'partial'] },
+        due_date: { $lt: new Date() }
+      })
+    ]);
+
+    const counts = {
+      total_invoices: totalInvoices,
+      draft_invoices: draftInvoices,
+      sent_invoices: sentInvoices,
+      paid_invoices: paidInvoices,
+      pending_payment: pendingPayment,
+      overdue_invoices: overdueInvoices
+    };
+
+    console.log('Invoice counts for company', targetCompanyId, ':', counts);
+    res.json(counts);
+
+  } catch (error) {
+    console.error('Get invoice counts error:', error);
+    if (error.message.includes('Access denied') || error.message.includes('Company not found')) {
+      return res.status(403).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Server error while fetching invoice counts' });
+  }
+});
 
 // GET /api/invoices/ - Get invoices
 router.get('/invoices', authMiddleware, async (req, res) => {
